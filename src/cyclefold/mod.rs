@@ -2,6 +2,7 @@
 
 pub(crate) mod circuit;
 pub(crate) mod gadgets;
+mod ic;
 mod nova_circuit;
 pub(crate) mod util;
 
