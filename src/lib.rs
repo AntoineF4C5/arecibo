@@ -30,6 +30,7 @@ pub mod spartan;
 pub mod traits;
 
 pub mod cyclefold;
+pub mod nebula;
 pub mod supernova;
 
 use once_cell::sync::OnceCell;

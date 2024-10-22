@@ -25,7 +25,7 @@ where
     ck: &CommitmentKey<E1>,
     ro_consts: &ROConstants<E1>,
     prev_comm: E1::Scalar,
-    w_input: Vec<E1::Scalar>,
+    w_input: Vec<E1::Scalar>, // non-deterministic witness ω
   ) -> E1::Scalar {
     let comm_w_input = E1::CE::commit(ck, &w_input);
     let mut ro = E1::RO::new(ro_consts.clone(), 4); // prev_comm, x, y, inf
