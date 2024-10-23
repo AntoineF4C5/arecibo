@@ -9,6 +9,7 @@ use crate::{
   traits::{Engine, ROConstants},
   CommitmentKey,
 };
+use ff::Field;
 
 pub struct IC<E1>
 where

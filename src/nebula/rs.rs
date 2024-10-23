@@ -25,6 +25,7 @@ use crate::{
   Commitment, CommitmentKey, DigestComputer, R1CSWithArity, ROConstants, ResourceBuffer,
   SimpleDigestible,
 };
+use ff::Field;
 
 use abomonation::Abomonation;
 use abomonation_derive::Abomonation;
@@ -152,14 +153,48 @@ where
   r_U_primary: RelaxedR1CSInstance<E1>,
   l_w_primary: R1CSWitness<E1>,
   l_u_primary: R1CSInstance<E1>,
+
+  i: usize,
+
+  // incremental commitment
+  IC_i: E1::Scalar,
 }
 
 impl<E1> RecursiveSNARK<E1>
 where
   E1: CurveCycleEquipped,
 {
-  pub fn prove_step(&self, pp: &PublicParams<E1>) -> Result<(), NovaError> {
-    // compute (Ui+1,Wi+1,T) ← NIFS.P(pk,(Ui,Wi),(ui,wi)),
+  pub fn new(pp: &PublicParams<E1>) -> Result<Self, NovaError> {
+    let r1cs_primary = &pp.circuit_shape_primary.r1cs_shape;
+
+    let r_U_primary = RelaxedR1CSInstance::default(&pp.ck_primary, r1cs_primary);
+    let r_W_primary = RelaxedR1CSWitness::default(r1cs_primary);
+
+    let mut cs_primary = SatisfyingAssignment::<E1>::new();
+    let (l_u_primary, l_w_primary) =
+      cs_primary.r1cs_instance_and_witness(r1cs_primary, &pp.ck_primary)?;
+
+    Ok(Self {
+      // IVC proof
+      r_W_primary,
+      r_U_primary,
+      l_w_primary,
+      l_u_primary,
+
+      i: 0,
+
+      // incremental commitment
+      IC_i: E1::Scalar::ZERO, // IC_0 = ⊥
+    })
+  }
+  pub fn prove_step(&mut self, pp: &PublicParams<E1>) -> Result<(), NovaError> {
+    if self.i == 0 {
+      self.i = 1;
+      return Ok(());
+    }
+    // Parse Πi (self) as ((Ui, Wi), (ui, wi)) and then:
+    //
+    // 1. compute (Ui+1,Wi+1,T) ← NIFS.P(pk,(Ui,Wi),(ui,wi)),
     let (nifs_primary, (r_U_primary, r_W_primary), r) = PrimaryNIFS::<E1, Dual<E1>>::prove(
       &pp.ck_primary,
       &pp.ro_consts_primary,
@@ -170,6 +205,24 @@ where
       &self.l_u_primary,
       &self.l_w_primary,
     )?;
+    let comm_T = Commitment::<E1>::decompress(&nifs_primary.comm_T)?;
+
+    // 2. compute (ui+1, wi+1) ← trace(F ′, (vk, Ui, ui, (i, z0, zi), ωi, T )),
+    let mut cs_primary = SatisfyingAssignment::<E1>::with_capacity(
+      pp.circuit_shape_primary.r1cs_shape.num_io + 1,
+      pp.circuit_shape_primary.r1cs_shape.num_vars,
+    );
+    let (l_u_primary, l_w_primary) = cs_primary
+      .r1cs_instance_and_witness(&pp.circuit_shape_primary.r1cs_shape, &pp.ck_primary)
+      .map_err(|_| NovaError::UnSat)?;
+
+    // 3. output Πi+1 ← ((Ui+1, Wi+1), (ui+1, wi+1)).
+    self.r_U_primary = r_U_primary;
+    self.r_W_primary = r_W_primary;
+    self.l_u_primary = l_u_primary;
+    self.l_w_primary = l_w_primary;
+
+    self.i += 1;
 
     Ok(())
   }
