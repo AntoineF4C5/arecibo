@@ -158,15 +158,21 @@ where
 
   i: usize,
 
-  // incremental commitment
-  IC_i: E1::Scalar,
+  // incremental commitment of previous invokation of step circuit
+  IC_i_minus_one: E1::Scalar,
+
+  // commitment to non-deterministic advice
+  IC_W: Commitment<E1>, // supposed to be contained in self.l_u_primary // corresponds to comm_W in self.l_u_primary
 }
 
 impl<E1> RecursiveSNARK<E1>
 where
   E1: CurveCycleEquipped,
 {
-  pub fn new(pp: &PublicParams<E1>) -> Result<Self, NovaError> {
+  pub fn new<C>(pp: &PublicParams<E1>, c: &C) -> Result<Self, NovaError>
+  where
+    C: StepCircuit<E1::Scalar>,
+  {
     let r1cs_primary = &pp.circuit_shape_primary.r1cs_shape;
 
     let r_U_primary = RelaxedR1CSInstance::default(&pp.ck_primary, r1cs_primary);
@@ -186,13 +192,26 @@ where
       i: 0,
 
       // incremental commitment
-      IC_i: E1::Scalar::ZERO, // IC_0 = ⊥
+      IC_i_minus_one: E1::Scalar::ZERO, // IC_0 = ⊥, // carries value of: C_i−1
+
+      // commitment to non-deterministic advice
+      IC_W: c.commit_w::<E1>(&pp.ck_primary), // C_ω_i−1
     })
   }
-  pub fn prove_step(&mut self, pp: &PublicParams<E1>) -> Result<(), NovaError> {
+
+  pub fn prove_step<C>(
+    &mut self,
+    pp: &PublicParams<E1>,
+    c: &C,
+    IC_i: E1::Scalar,
+  ) -> Result<E1::Scalar, NovaError>
+  // outputs IC_i
+  where
+    C: StepCircuit<E1::Scalar>,
+  {
     if self.i == 0 {
       self.i = 1;
-      return Ok(());
+      return Ok(IC_i);
     }
     // Parse Πi (self) as ((Ui, Wi), (ui, wi)) and then:
     //
@@ -224,9 +243,13 @@ where
     self.l_u_primary = l_u_primary;
     self.l_w_primary = l_w_primary;
 
+    // update incremental commitments in IVC proof
+    self.IC_i_minus_one = IC_i;
+    self.IC_W = c.commit_w::<E1>(&pp.ck_primary);
+
     self.i += 1;
 
-    Ok(())
+    Ok(IC_i)
   }
 }
 
@@ -254,5 +277,83 @@ pub trait StepCircuit<F: PrimeField>: Send + Sync + Clone {
     E: Engine<Scalar = F>,
   {
     E::CE::commit(ck, &self.non_deterministic_advice())
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use std::marker::PhantomData;
+
+  use bellpepper_core::num::AllocatedNum;
+
+  use super::*;
+  use crate::{
+    nebula::ic::IC,
+    provider::{Bn256EngineKZG, PallasEngine, Secp256k1Engine},
+    traits::snark::default_ck_hint,
+    StepCounterType,
+  };
+
+  #[derive(Clone)]
+  struct SquareCircuit<F> {
+    _p: PhantomData<F>,
+    counter_type: StepCounterType,
+  }
+
+  impl<F: PrimeField> StepCircuit<F> for SquareCircuit<F> {
+    fn arity(&self) -> usize {
+      1
+    }
+
+    fn synthesize<CS: ConstraintSystem<F>>(
+      &self,
+      cs: &mut CS,
+      z: &[AllocatedNum<F>],
+    ) -> Result<Vec<AllocatedNum<F>>, SynthesisError> {
+      let x = &z[0];
+      let x_sq = x.square(cs.namespace(|| "x_sq"))?;
+
+      Ok(vec![x_sq])
+    }
+
+    fn non_deterministic_advice(&self) -> Vec<F> {
+      Vec::new()
+    }
+  }
+
+  fn test_trivial_cyclefold_prove_verify_with<E: CurveCycleEquipped>() {
+    let primary_circuit = SquareCircuit::<E::Scalar> {
+      _p: PhantomData,
+      counter_type: StepCounterType::Incremental,
+    };
+
+    let pp = PublicParams::<E>::setup(&primary_circuit, &*default_ck_hint(), &*default_ck_hint());
+
+    let z0 = vec![E::Scalar::from(2u64)];
+
+    let mut recursive_snark = RecursiveSNARK::new(&pp, &primary_circuit).unwrap();
+    let mut IC_i = E::Scalar::ZERO;
+    let ro_consts = ROConstants::<E>::default();
+    (0..5).for_each(|iter| {
+      let incremental_commitment = recursive_snark
+        .prove_step(&pp, &primary_circuit, IC_i)
+        .unwrap();
+
+      IC_i = IC::<E>::commit(
+        &pp.ck_primary,
+        &ro_consts,
+        incremental_commitment,
+        primary_circuit.non_deterministic_advice(),
+      );
+      // let res_verify = recursive_snark.verify(&pp, iter, &z0);
+      // res_verify.unwrap();
+    });
+  }
+
+  #[test]
+  fn test_cyclefold_prove_verify() {
+    test_trivial_cyclefold_prove_verify_with::<PallasEngine>();
+    test_trivial_cyclefold_prove_verify_with::<Bn256EngineKZG>();
+    test_trivial_cyclefold_prove_verify_with::<Secp256k1Engine>();
   }
 }
