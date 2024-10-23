@@ -1,6 +1,7 @@
-use serde::{Deserialize, Serialize};
-
 use crate::cyclefold::nifs::PrimaryNIFS;
+use crate::traits::commitment::CommitmentEngineTrait;
+
+use crate::Commitment;
 use crate::{
   bellpepper::{
     r1cs::{NovaShape, NovaWitness},
@@ -19,13 +20,14 @@ use crate::{
     RelaxedR1CSWitness,
   },
   traits::{
-    circuit::StepCircuit, commitment::CommitmentTrait, AbsorbInROTrait, CurveCycleEquipped, Dual,
-    Engine, ROConstantsCircuit, ROTrait,
+    commitment::CommitmentTrait, AbsorbInROTrait, CurveCycleEquipped, Dual, Engine,
+    ROConstantsCircuit, ROTrait,
   },
-  Commitment, CommitmentKey, DigestComputer, R1CSWithArity, ROConstants, ResourceBuffer,
-  SimpleDigestible,
+  CommitmentKey, DigestComputer, R1CSWithArity, ROConstants, ResourceBuffer, SimpleDigestible,
 };
+use bellpepper_core::num::AllocatedNum;
 use ff::Field;
+use serde::{Deserialize, Serialize};
 
 use abomonation::Abomonation;
 use abomonation_derive::Abomonation;
@@ -225,5 +227,32 @@ where
     self.i += 1;
 
     Ok(())
+  }
+}
+
+/// A helper trait for a step of the incremental computation (i.e., circuit for F)
+pub trait StepCircuit<F: PrimeField>: Send + Sync + Clone {
+  /// Return the number of inputs or outputs of each step
+  /// (this method is called only at circuit synthesis time)
+  /// `synthesize` and `output` methods are expected to take as
+  /// input a vector of size equal to arity and output a vector of size equal to arity
+  fn arity(&self) -> usize;
+
+  /// Sythesize the circuit for a computation step and return variable
+  /// that corresponds to the output of the step `z_{i+1}`
+  fn synthesize<CS: ConstraintSystem<F>>(
+    &self,
+    cs: &mut CS,
+    z: &[AllocatedNum<F>],
+  ) -> Result<Vec<AllocatedNum<F>>, SynthesisError>;
+
+  // Get the non-deterministic advice we will commit to
+  fn non_deterministic_advice(&self) -> Vec<F>;
+
+  fn commit_w<E>(&self, ck: &CommitmentKey<E>) -> Commitment<E>
+  where
+    E: Engine<Scalar = F>,
+  {
+    E::CE::commit(ck, &self.non_deterministic_advice())
   }
 }
