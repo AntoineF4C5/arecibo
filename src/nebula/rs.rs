@@ -1,5 +1,5 @@
 use crate::cyclefold::nifs::{CycleFoldNIFS, PrimaryNIFS};
-use crate::cyclefold::util::FoldingData;
+use crate::cyclefold::util::{absorb_primary_relaxed_r1cs, FoldingData};
 use crate::traits::commitment::CommitmentEngineTrait;
 
 use crate::Commitment;
@@ -155,7 +155,7 @@ where
   E1: CurveCycleEquipped,
 {
   // Input
-  z0_primary: Vec<E1::Scalar>,
+  z0: Vec<E1::Scalar>,
 
   // primary circuit data
   r_W_primary: RelaxedR1CSWitness<E1>,
@@ -164,7 +164,7 @@ where
   l_u_primary: R1CSInstance<E1>,
 
   i: usize,
-  zi_primary: Vec<E1::Scalar>,
+  zi: Vec<E1::Scalar>,
 
   // incremental commitment of previous invokation of step circuit
   IC_i_minus_one: E1::Scalar,
@@ -184,12 +184,12 @@ where
   pub fn new<C>(
     pp: &PublicParams<E1>,
     step_circuit: &C,
-    z0_primary: &[E1::Scalar],
+    z0: &[E1::Scalar],
   ) -> Result<Self, NovaError>
   where
     C: StepCircuit<E1::Scalar>,
   {
-    if z0_primary.len() != pp.F_arity_primary {
+    if z0.len() != pp.F_arity_primary {
       return Err(NovaError::InvalidInitialInputLength);
     }
 
@@ -202,7 +202,7 @@ where
     let inputs_primary: AugmentedCircuitInputs<Dual<E1>, E1> = AugmentedCircuitInputs::new(
       scalar_as_base::<E1>(pp.digest()),
       <Dual<E1> as Engine>::Base::from(0u64),
-      z0_primary.to_vec(),
+      z0.to_vec(),
       None,
       None,
       None,
@@ -216,12 +216,12 @@ where
       Some(inputs_primary),
       step_circuit,
     );
-    let zi_primary = circuit_primary.synthesize(&mut cs_primary)?;
+    let zi = circuit_primary.synthesize(&mut cs_primary)?;
 
     let (l_u_primary, l_w_primary) =
       cs_primary.r1cs_instance_and_witness(r1cs_primary, &pp.ck_primary)?;
 
-    let zi_primary = zi_primary
+    let zi = zi
       .iter()
       .map(|v| v.get_value().ok_or(SynthesisError::AssignmentMissing))
       .collect::<Result<Vec<_>, _>>()?;
@@ -233,7 +233,7 @@ where
     let r_W_cyclefold = RelaxedR1CSWitness::default(r1cs_cyclefold);
 
     Ok(Self {
-      z0_primary: z0_primary.to_vec(),
+      z0: z0.to_vec(),
       // IVC proof
       r_W_primary,
       r_U_primary,
@@ -241,7 +241,7 @@ where
       l_u_primary,
 
       i: 0,
-      zi_primary,
+      zi,
 
       // incremental commitment
       IC_i_minus_one: E1::Scalar::ZERO, // IC_0 = ⊥, // carries value of: C_i−1
@@ -380,8 +380,8 @@ where
     let inputs_primary: AugmentedCircuitInputs<Dual<E1>, E1> = AugmentedCircuitInputs::new(
       scalar_as_base::<E1>(pp.digest()),
       <Dual<E1> as Engine>::Base::from(self.i as u64),
-      self.z0_primary.clone(),
-      Some(self.zi_primary.clone()),
+      self.z0.clone(),
+      Some(self.zi.clone()),
       Some(data_p),
       Some(data_c_E),
       Some(data_c_W),
@@ -395,13 +395,13 @@ where
       Some(inputs_primary),
       step_circuit,
     );
-    let zi_primary = circuit_primary.synthesize(&mut cs_primary)?;
+    let zi = circuit_primary.synthesize(&mut cs_primary)?;
 
     let (l_u_primary, l_w_primary) = cs_primary
       .r1cs_instance_and_witness(&pp.circuit_shape_primary.r1cs_shape, &pp.ck_primary)
       .map_err(|_| NovaError::UnSat)?;
 
-    self.zi_primary = zi_primary
+    self.zi = zi
       .iter()
       .map(|v| v.get_value().ok_or(SynthesisError::AssignmentMissing))
       .collect::<Result<Vec<_>, _>>()?;
@@ -422,6 +422,119 @@ where
     self.i += 1;
 
     Ok(())
+  }
+
+  /// Verify the correctness of the `RecursiveSNARK`
+  pub fn verify(
+    &self,
+    pp: &PublicParams<E1>,
+    num_steps: usize,
+    z0: &[E1::Scalar],
+    IC_i: E1::Scalar,
+  ) -> Result<Vec<E1::Scalar>, NovaError> {
+    // number of steps cannot be zero
+    let is_num_steps_zero = num_steps == 0;
+
+    // check if the provided proof has executed num_steps
+    let is_num_steps_not_match = self.i != num_steps;
+
+    // check if the initial inputs match
+    let is_inputs_not_match = self.z0 != z0;
+
+    // check if the (relaxed) R1CS instances have two public outputs
+    let is_instance_has_two_outputs = self.r_U_primary.X.len() != 2;
+
+    if is_num_steps_zero
+      || is_num_steps_not_match
+      || is_inputs_not_match
+      || is_instance_has_two_outputs
+    {
+      return Err(NovaError::ProofVerifyError);
+    }
+
+    // Calculate the hashes of the primary running instance and cyclefold running instance
+    let (hash_primary, hash_cyclefold) = {
+      let mut hasher = <Dual<E1> as Engine>::RO::new(
+        pp.ro_consts_primary.clone(),
+        2 + 2 * pp.F_arity_primary + 2 * NUM_FE_IN_EMULATED_POINT + 3,
+      );
+      hasher.absorb(pp.digest());
+      hasher.absorb(E1::Scalar::from(num_steps as u64));
+      for e in z0 {
+        hasher.absorb(*e);
+      }
+      for e in &self.zi {
+        hasher.absorb(*e);
+      }
+      absorb_primary_relaxed_r1cs::<E1, Dual<E1>>(&self.r_U_primary, &mut hasher);
+      let hash_primary = hasher.squeeze(NUM_HASH_BITS);
+
+      let mut hasher = <Dual<E1> as Engine>::RO::new(
+        pp.ro_consts_cyclefold.clone(),
+        1 + 1 + 3 + 3 + 1 + NIO_CYCLE_FOLD * BN_N_LIMBS,
+      );
+      hasher.absorb(pp.digest());
+      hasher.absorb(E1::Scalar::from(num_steps as u64));
+      self.r_U_cyclefold.absorb_in_ro(&mut hasher);
+      let hash_cyclefold = hasher.squeeze(NUM_HASH_BITS);
+
+      (hash_primary, hash_cyclefold)
+    };
+
+    // Verify the hashes equal the public IO for the final primary instance
+    if scalar_as_base::<Dual<E1>>(hash_primary) != self.l_u_primary.X[0]
+      || scalar_as_base::<Dual<E1>>(hash_cyclefold) != self.l_u_primary.X[1]
+    {
+      return Err(NovaError::ProofVerifyError);
+    }
+
+    // Verify the satisfiability of running relaxed instances, and the final primary instance.
+    let (res_r_primary, (res_l_primary, res_r_cyclefold)) = rayon::join(
+      || {
+        pp.circuit_shape_primary.r1cs_shape.is_sat_relaxed(
+          &pp.ck_primary,
+          &self.r_U_primary,
+          &self.r_W_primary,
+        )
+      },
+      || {
+        rayon::join(
+          || {
+            pp.circuit_shape_primary.r1cs_shape.is_sat(
+              &pp.ck_primary,
+              &self.l_u_primary,
+              &self.l_w_primary,
+            )
+          },
+          || {
+            pp.circuit_shape_cyclefold.r1cs_shape.is_sat_relaxed(
+              &pp.ck_cyclefold,
+              &self.r_U_cyclefold,
+              &self.r_W_cyclefold,
+            )
+          },
+        )
+      },
+    );
+
+    res_r_primary?;
+    res_l_primary?;
+    res_r_cyclefold?;
+
+    // Abort if Ci  != hash(Ci−1, Cωi−1 )
+    let intermediary_comm = {
+      let mut ro = E1::RO::new(pp.ro_consts_secondary.clone(), 4); // prev_comm, x, y, inf
+
+      ro.absorb(scalar_as_base::<E1>(self.IC_i_minus_one));
+      self.IC_W.absorb_in_ro(&mut ro);
+      ro.squeeze(NUM_HASH_BITS)
+    };
+
+    if IC_i != intermediary_comm {
+      return Err(NovaError::InvalidIC);
+    }
+
+    Ok(self.zi.to_vec())
   }
 
   fn increment_commitment<C>(&self, pp: &PublicParams<E1>, step_circuit: &C) -> E1::Scalar
@@ -513,12 +626,14 @@ mod test {
     let mut recursive_snark = RecursiveSNARK::new(&pp, &primary_circuit, &z0).unwrap();
     let mut IC_i = E::Scalar::ZERO;
 
-    (0..5).for_each(|iter| {
+    (0..5).for_each(|i| {
       recursive_snark
         .prove_step(&pp, &primary_circuit, IC_i)
         .unwrap();
 
       IC_i = recursive_snark.increment_commitment(&pp, &primary_circuit);
+
+      recursive_snark.verify(&pp, i + 1, &z0, IC_i).unwrap();
     });
   }
 
