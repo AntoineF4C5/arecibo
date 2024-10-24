@@ -460,7 +460,7 @@ where
     let (hash_primary, hash_cyclefold) = {
       let mut hasher = <Dual<E1> as Engine>::RO::new(
         pp.ro_consts_primary.clone(),
-        2 + 2 * pp.F_arity_primary + 2 * NUM_FE_IN_EMULATED_POINT + 3,
+        3 + 2 * pp.F_arity_primary + 2 * NUM_FE_IN_EMULATED_POINT + 3,
       );
       hasher.absorb(pp.digest());
       hasher.absorb(E1::Scalar::from(num_steps as u64));
@@ -471,6 +471,8 @@ where
         hasher.absorb(*e);
       }
       absorb_primary_relaxed_r1cs::<E1, Dual<E1>>(&self.r_U_primary, &mut hasher);
+      hasher.absorb(self.prev_IC);
+
       let hash_primary = hasher.squeeze(NUM_HASH_BITS);
 
       let mut hasher = <Dual<E1> as Engine>::RO::new(

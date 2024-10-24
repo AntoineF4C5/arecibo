@@ -546,7 +546,7 @@ where
     // instance
     let mut ro_p = E1::ROCircuit::new(
       self.ro_consts.clone(),
-      2 + 2 * arity + (2 * NUM_FE_IN_EMULATED_POINT + 3), // pp + i + z_0 + z_next + (U_p)
+      3 + 2 * arity + (2 * NUM_FE_IN_EMULATED_POINT + 3), // pp + i + IC_i + z_0 + z_next + (U_p)
     );
     ro_p.absorb(&pp_digest);
     ro_p.absorb(&i_new);
@@ -557,6 +557,8 @@ where
       ro_p.absorb(e);
     }
     Unew_p.absorb_in_ro(cs.namespace(|| "absorb Unew_p"), &mut ro_p)?;
+    ro_p.absorb(&IC_i_base_case);
+
     let hash_p_bits = ro_p.squeeze(cs.namespace(|| "hash_p_bits"), NUM_HASH_BITS)?;
     let hash_p = le_bits_to_num(cs.namespace(|| "hash_p"), &hash_p_bits)?;
 
