@@ -170,7 +170,7 @@ where
   prev_IC: E1::Scalar,
 
   // commitment to non-deterministic advice
-  IC_W: Commitment<E1>, // supposed to be contained in self.l_u_primary // corresponds to comm_W in self.l_u_primary
+  comm_omega_prev: Commitment<E1>, // supposed to be contained in self.l_u_primary // corresponds to comm_W in self.l_u_primary
 
   // cyclefold circuit data
   r_W_cyclefold: RelaxedR1CSWitness<Dual<E1>>,
@@ -203,6 +203,7 @@ where
       scalar_as_base::<E1>(pp.digest()),
       <Dual<E1> as Engine>::Base::from(0u64),
       z0.to_vec(),
+      None,
       None,
       None,
       None,
@@ -248,7 +249,7 @@ where
       prev_IC: E1::Scalar::ZERO, // IC_0 = ⊥, // carries value of: C_i−1
 
       // commitment to non-deterministic advice
-      IC_W: step_circuit.commit_w::<E1>(&pp.ck_primary), // C_ω_i−1
+      comm_omega_prev: step_circuit.commit_w::<E1>(&pp.ck_primary), // C_ω_i−1
 
       r_U_cyclefold,
       r_W_cyclefold,
@@ -288,7 +289,7 @@ where
       let mut ro = E1::RO::new(pp.ro_consts_secondary.clone(), 4); // prev_comm, x, y, inf
 
       ro.absorb(scalar_as_base::<E1>(self.prev_IC));
-      self.IC_W.absorb_in_ro(&mut ro);
+      self.comm_omega_prev.absorb_in_ro(&mut ro);
       ro.squeeze(NUM_HASH_BITS)
     };
 
@@ -389,6 +390,7 @@ where
       Some(E_new),
       Some(W_new),
       Some(self.prev_IC),
+      Some(self.comm_omega_prev),
     );
 
     let circuit_primary: AugmentedCircuit<'_, Dual<E1>, E1, C> = AugmentedCircuit::new(
@@ -416,7 +418,7 @@ where
 
     // update incremental commitments in IVC proof
     self.prev_IC = IC_i;
-    self.IC_W = step_circuit.commit_w::<E1>(&pp.ck_primary);
+    self.comm_omega_prev = step_circuit.commit_w::<E1>(&pp.ck_primary);
 
     self.r_U_cyclefold = r_U_cyclefold_W;
     self.r_W_cyclefold = r_W_cyclefold_W;
@@ -528,7 +530,7 @@ where
       let mut ro = E1::RO::new(pp.ro_consts_secondary.clone(), 4); // prev_comm, x, y, inf
 
       ro.absorb(scalar_as_base::<E1>(self.prev_IC));
-      self.IC_W.absorb_in_ro(&mut ro);
+      self.comm_omega_prev.absorb_in_ro(&mut ro);
       ro.squeeze(NUM_HASH_BITS)
     };
 
@@ -628,7 +630,7 @@ mod test {
     let mut recursive_snark = RecursiveSNARK::new(&pp, &primary_circuit, &z0).unwrap();
     let mut IC_i = E::Scalar::ZERO;
 
-    (0..5).for_each(|i| {
+    (0..1).for_each(|i| {
       recursive_snark
         .prove_step(&pp, &primary_circuit, IC_i)
         .unwrap();

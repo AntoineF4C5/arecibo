@@ -61,6 +61,7 @@ where
   W_new: Option<Commitment<E2>>,
 
   prev_IC: Option<E1::Base>,
+  comm_omega_prev: Option<Commitment<E2>>,
 }
 
 impl<E1, E2> AugmentedCircuitInputs<E1, E2>
@@ -79,6 +80,7 @@ where
     E_new: Option<Commitment<E2>>,
     W_new: Option<Commitment<E2>>,
     prev_IC: Option<E1::Base>,
+    comm_omega_prev: Option<Commitment<E2>>,
   ) -> Self {
     Self {
       pp_digest,
@@ -91,6 +93,7 @@ where
       E_new,
       W_new,
       prev_IC,
+      comm_omega_prev,
     }
   }
 }
@@ -142,6 +145,7 @@ where
       emulated::AllocatedEmulPoint<E1::GE>, // E_new
       emulated::AllocatedEmulPoint<E1::GE>, // W_new
       AllocatedNum<E1::Base>,               // prev_IC
+      emulated::AllocatedEmulPoint<E1::GE>, // comm_omega_prev
     ),
     SynthesisError,
   > {
@@ -233,8 +237,29 @@ where
       )
     })?;
 
+    let comm_omega_prev = emulated::AllocatedEmulPoint::alloc(
+      cs.namespace(|| "comm_omega_prev"),
+      self
+        .inputs
+        .as_ref()
+        .and_then(|inputs| inputs.comm_omega_prev.as_ref())
+        .map(|comm_omega_prev| comm_omega_prev.to_coordinates()),
+      self.params.limb_width,
+      self.params.n_limbs,
+    )?;
+
     Ok((
-      pp_digest, i, z_0, z_i, data_p, data_c_1, data_c_2, E_new, W_new, prev_IC,
+      pp_digest,
+      i,
+      z_0,
+      z_i,
+      data_p,
+      data_c_1,
+      data_c_2,
+      E_new,
+      W_new,
+      prev_IC,
+      comm_omega_prev,
     ))
   }
 
@@ -418,8 +443,19 @@ where
     let arity = self.step_circuit.arity();
 
     // Allocate the witness
-    let (pp_digest, i, z_0, z_i, data_p, data_c_1, data_c_2, E_new, W_new, prev_IC) =
-      self.alloc_witness(cs.namespace(|| "alloc_witness"), arity)?;
+    let (
+      pp_digest,
+      i,
+      z_0,
+      z_i,
+      data_p,
+      data_c_1,
+      data_c_2,
+      E_new,
+      W_new,
+      prev_IC,
+      comm_omega_prev,
+    ) = self.alloc_witness(cs.namespace(|| "alloc_witness"), arity)?;
 
     let zero = alloc_zero(cs.namespace(|| "zero"));
     let is_base_case = alloc_num_equals(cs.namespace(|| "is base case"), &i, &zero)?;
@@ -501,6 +537,10 @@ where
         "z_next".to_string(),
       ));
     }
+
+    // compute incremental commitment
+    let IC_i_base_case =
+      AllocatedNum::alloc(cs.namespace(|| "select input to F"), || Ok(E1::Base::ZERO))?;
 
     // Calculate the first component of the public IO as the hash of the calculated primary running
     // instance
