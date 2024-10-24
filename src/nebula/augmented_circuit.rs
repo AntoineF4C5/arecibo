@@ -12,7 +12,10 @@ use crate::{
 
 use abomonation_derive::Abomonation;
 use bellpepper::gadgets::{
-  boolean::Boolean, boolean_utils::conditionally_select_slice, num::AllocatedNum, Assignment,
+  boolean::Boolean,
+  boolean_utils::{conditionally_select, conditionally_select_slice},
+  num::AllocatedNum,
+  Assignment,
 };
 use bellpepper_core::{boolean::AllocatedBit, ConstraintSystem, SynthesisError};
 use ff::Field;
@@ -60,7 +63,7 @@ where
   E_new: Option<Commitment<E2>>,
   W_new: Option<Commitment<E2>>,
 
-  prev_IC: Option<E1::Base>,
+  prev_IC: Option<E1::Scalar>,
   comm_omega_prev: Option<Commitment<E2>>,
 }
 
@@ -79,7 +82,7 @@ where
     data_c_2: Option<FoldingData<E1>>,
     E_new: Option<Commitment<E2>>,
     W_new: Option<Commitment<E2>>,
-    prev_IC: Option<E1::Base>,
+    prev_IC: Option<E1::Scalar>,
     comm_omega_prev: Option<Commitment<E2>>,
   ) -> Self {
     Self {
@@ -144,7 +147,7 @@ where
       AllocatedCycleFoldData<E1>,           // data_c_2
       emulated::AllocatedEmulPoint<E1::GE>, // E_new
       emulated::AllocatedEmulPoint<E1::GE>, // W_new
-      AllocatedNum<E1::Base>,               // prev_IC
+      // AllocatedNum<E1::Base>,               // prev_IC
       emulated::AllocatedEmulPoint<E1::GE>, // comm_omega_prev
     ),
     SynthesisError,
@@ -226,16 +229,16 @@ where
       self.params.n_limbs,
     )?;
 
-    let prev_IC = AllocatedNum::alloc(cs.namespace(|| format!("prev_IC")), || {
-      Ok(
-        *self
-          .inputs
-          .get()?
-          .prev_IC
-          .as_ref()
-          .unwrap_or(&E1::Base::ZERO),
-      )
-    })?;
+    // let prev_IC = AllocatedNum::alloc(cs.namespace(|| format!("prev_IC")), || {
+    //   Ok(
+    //     *self
+    //       .inputs
+    //       .get()?
+    //       .prev_IC
+    //       .as_ref()
+    //       .unwrap_or(&E1::Base::ZERO),
+    //   )
+    // })?;
 
     let comm_omega_prev = emulated::AllocatedEmulPoint::alloc(
       cs.namespace(|| "comm_omega_prev"),
@@ -258,7 +261,7 @@ where
       data_c_2,
       E_new,
       W_new,
-      prev_IC,
+      // prev_IC,
       comm_omega_prev,
     ))
   }
@@ -303,6 +306,7 @@ where
     E_new: emulated::AllocatedEmulPoint<E1::GE>,
     W_new: emulated::AllocatedEmulPoint<E1::GE>,
     arity: usize,
+    // prev_IC: &AllocatedNum<E1::Base>,
   ) -> Result<
     (
       AllocatedRelaxedR1CSInstance<E1, NIO_CYCLE_FOLD>,
@@ -316,7 +320,7 @@ where
     // Calculate the hash of the non-deterministic advice for the primary circuit
     let mut ro_p = E1::ROCircuit::new(
       self.ro_consts.clone(),
-      2 + 2 * arity + 2 * NUM_FE_IN_EMULATED_POINT + 3,
+      3 + 2 * arity + 2 * NUM_FE_IN_EMULATED_POINT + 3,
     );
 
     ro_p.absorb(pp_digest);
@@ -330,6 +334,7 @@ where
     data_p
       .U
       .absorb_in_ro(cs.namespace(|| "absorb U_p"), &mut ro_p)?;
+    // ro_p.absorb(prev_IC);
 
     let hash_bits_p = ro_p.squeeze(cs.namespace(|| "primary hash bits"), NUM_HASH_BITS)?;
     let hash_p = le_bits_to_num(cs.namespace(|| "primary hash"), &hash_bits_p)?;
@@ -453,7 +458,7 @@ where
       data_c_2,
       E_new,
       W_new,
-      prev_IC,
+      // prev_IC,
       comm_omega_prev,
     ) = self.alloc_witness(cs.namespace(|| "alloc_witness"), arity)?;
 
@@ -480,6 +485,7 @@ where
       E_new,
       W_new,
       arity,
+      // &prev_IC,
     )?;
 
     let should_be_false = AllocatedBit::nor(
@@ -524,7 +530,7 @@ where
       cs.namespace(|| "select input to F"),
       &z_0,
       &z_i,
-      &Boolean::from(is_base_case),
+      &Boolean::from(is_base_case.clone()),
     )?;
 
     // Compute the next output zi+1 ← Fj(zi,ωi).
@@ -542,6 +548,25 @@ where
     let IC_i_base_case =
       AllocatedNum::alloc(cs.namespace(|| "select input to F"), || Ok(E1::Base::ZERO))?;
 
+    let IC_i_non_base_case = {
+      let mut ro = E1::ROCircuit::new(
+        self.ro_consts.clone(),
+        1 + NUM_FE_IN_EMULATED_POINT, // IC_prev + comm_omega_prev
+      );
+      // ro.absorb(&prev_IC);
+      comm_omega_prev.absorb_in_ro(cs.namespace(|| "absorb comm_omega_prev"), &mut ro)?;
+
+      let hash_IC_bits = ro.squeeze(cs.namespace(|| "hash_IC_bits"), NUM_HASH_BITS)?;
+      le_bits_to_num(cs.namespace(|| "hash_IC"), &hash_IC_bits)?
+    };
+
+    let IC_i = conditionally_select(
+      cs.namespace(|| "select IC"),
+      &IC_i_base_case,
+      &IC_i_non_base_case,
+      &Boolean::from(is_base_case),
+    )?;
+
     // Calculate the first component of the public IO as the hash of the calculated primary running
     // instance
     let mut ro_p = E1::ROCircuit::new(
@@ -557,7 +582,7 @@ where
       ro_p.absorb(e);
     }
     Unew_p.absorb_in_ro(cs.namespace(|| "absorb Unew_p"), &mut ro_p)?;
-    ro_p.absorb(&IC_i_base_case);
+    ro_p.absorb(&IC_i);
 
     let hash_p_bits = ro_p.squeeze(cs.namespace(|| "hash_p_bits"), NUM_HASH_BITS)?;
     let hash_p = le_bits_to_num(cs.namespace(|| "hash_p"), &hash_p_bits)?;
