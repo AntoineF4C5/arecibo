@@ -59,6 +59,8 @@ where
 
   E_new: Option<Commitment<E2>>,
   W_new: Option<Commitment<E2>>,
+
+  prev_IC: Option<E1::Base>,
 }
 
 impl<E1, E2> AugmentedCircuitInputs<E1, E2>
@@ -76,6 +78,7 @@ where
     data_c_2: Option<FoldingData<E1>>,
     E_new: Option<Commitment<E2>>,
     W_new: Option<Commitment<E2>>,
+    prev_IC: Option<E1::Base>,
   ) -> Self {
     Self {
       pp_digest,
@@ -87,6 +90,7 @@ where
       data_c_2,
       E_new,
       W_new,
+      prev_IC,
     }
   }
 }
@@ -137,6 +141,7 @@ where
       AllocatedCycleFoldData<E1>,           // data_c_2
       emulated::AllocatedEmulPoint<E1::GE>, // E_new
       emulated::AllocatedEmulPoint<E1::GE>, // W_new
+      AllocatedNum<E1::Base>,               // prev_IC
     ),
     SynthesisError,
   > {
@@ -217,8 +222,19 @@ where
       self.params.n_limbs,
     )?;
 
+    let prev_IC = AllocatedNum::alloc(cs.namespace(|| format!("prev_IC")), || {
+      Ok(
+        *self
+          .inputs
+          .get()?
+          .prev_IC
+          .as_ref()
+          .unwrap_or(&E1::Base::ZERO),
+      )
+    })?;
+
     Ok((
-      pp_digest, i, z_0, z_i, data_p, data_c_1, data_c_2, E_new, W_new,
+      pp_digest, i, z_0, z_i, data_p, data_c_1, data_c_2, E_new, W_new, prev_IC,
     ))
   }
 
@@ -402,7 +418,7 @@ where
     let arity = self.step_circuit.arity();
 
     // Allocate the witness
-    let (pp_digest, i, z_0, z_i, data_p, data_c_1, data_c_2, E_new, W_new) =
+    let (pp_digest, i, z_0, z_i, data_p, data_c_1, data_c_2, E_new, W_new, prev_IC) =
       self.alloc_witness(cs.namespace(|| "alloc_witness"), arity)?;
 
     let zero = alloc_zero(cs.namespace(|| "zero"));

@@ -167,7 +167,7 @@ where
   zi: Vec<E1::Scalar>,
 
   // incremental commitment of previous invokation of step circuit
-  IC_i_minus_one: E1::Scalar,
+  prev_IC: E1::Scalar,
 
   // commitment to non-deterministic advice
   IC_W: Commitment<E1>, // supposed to be contained in self.l_u_primary // corresponds to comm_W in self.l_u_primary
@@ -209,6 +209,7 @@ where
       None,
       None,
       None,
+      None,
     );
     let circuit_primary = AugmentedCircuit::new(
       &pp.augmented_circuit_params,
@@ -244,7 +245,7 @@ where
       zi,
 
       // incremental commitment
-      IC_i_minus_one: E1::Scalar::ZERO, // IC_0 = ⊥, // carries value of: C_i−1
+      prev_IC: E1::Scalar::ZERO, // IC_0 = ⊥, // carries value of: C_i−1
 
       // commitment to non-deterministic advice
       IC_W: step_circuit.commit_w::<E1>(&pp.ck_primary), // C_ω_i−1
@@ -286,7 +287,7 @@ where
     let intermediary_comm = {
       let mut ro = E1::RO::new(pp.ro_consts_secondary.clone(), 4); // prev_comm, x, y, inf
 
-      ro.absorb(scalar_as_base::<E1>(self.IC_i_minus_one));
+      ro.absorb(scalar_as_base::<E1>(self.prev_IC));
       self.IC_W.absorb_in_ro(&mut ro);
       ro.squeeze(NUM_HASH_BITS)
     };
@@ -387,6 +388,7 @@ where
       Some(data_c_W),
       Some(E_new),
       Some(W_new),
+      Some(self.prev_IC),
     );
 
     let circuit_primary: AugmentedCircuit<'_, Dual<E1>, E1, C> = AugmentedCircuit::new(
@@ -413,7 +415,7 @@ where
     self.l_w_primary = l_w_primary;
 
     // update incremental commitments in IVC proof
-    self.IC_i_minus_one = IC_i;
+    self.prev_IC = IC_i;
     self.IC_W = step_circuit.commit_w::<E1>(&pp.ck_primary);
 
     self.r_U_cyclefold = r_U_cyclefold_W;
@@ -525,7 +527,7 @@ where
     let intermediary_comm = {
       let mut ro = E1::RO::new(pp.ro_consts_secondary.clone(), 4); // prev_comm, x, y, inf
 
-      ro.absorb(scalar_as_base::<E1>(self.IC_i_minus_one));
+      ro.absorb(scalar_as_base::<E1>(self.prev_IC));
       self.IC_W.absorb_in_ro(&mut ro);
       ro.squeeze(NUM_HASH_BITS)
     };
@@ -544,7 +546,7 @@ where
     IC::<E1>::commit(
       &pp.ck_primary,
       &pp.ro_consts_secondary,
-      self.IC_i_minus_one,
+      self.prev_IC,
       step_circuit.non_deterministic_advice(),
     )
   }
