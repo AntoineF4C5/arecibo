@@ -88,6 +88,9 @@ pub enum NovaError {
   /// returned when the prover cannot prove the provided statement due to completeness error
   #[error("InternalError")]
   InternalError,
+  /// returned when the incremental commitment passed to recursiveSNARK is not the correct one.
+  #[error("InvalidIC")]
+  InvalidIC,
 }
 
 /// Errors specific to the Polynomial commitment scheme

@@ -57,6 +57,7 @@ where
   circuit_shape_primary: R1CSWithArity<E1>,
   augmented_circuit_params: AugmentedCircuitParams,
   ro_consts_cyclefold: ROConstants<Dual<E1>>,
+  ro_consts_secondary: ROConstants<E1>,
   ck_cyclefold: CommitmentKey<Dual<E1>>,
   circuit_shape_cyclefold: R1CSWithArity<Dual<E1>>,
   #[abomonation_skip]
@@ -111,6 +112,7 @@ where
       ck_cyclefold,
       circuit_shape_cyclefold,
       digest: OnceCell::new(),
+      ro_consts_secondary: ROConstants::<E1>::default(),
     }
   }
 
@@ -228,6 +230,19 @@ where
     )?;
     let comm_T = Commitment::<E1>::decompress(&nifs_primary.comm_T)?;
 
+    // Abort if Ci  != hash(Ci−1, Cωi−1 )
+    let intermediary_comm = {
+      let mut ro = E1::RO::new(pp.ro_consts_secondary.clone(), 4); // prev_comm, x, y, inf
+
+      ro.absorb(scalar_as_base::<E1>(self.IC_i_minus_one));
+      self.IC_W.absorb_in_ro(&mut ro);
+      ro.squeeze(NUM_HASH_BITS)
+    };
+
+    if IC_i != intermediary_comm {
+      return Err(NovaError::InvalidIC);
+    }
+
     // 2. compute (ui+1, wi+1) ← trace(F ′, (vk, Ui, ui, (i, z0, zi), ωi, T )),
     let mut cs_primary = SatisfyingAssignment::<E1>::with_capacity(
       pp.circuit_shape_primary.r1cs_shape.num_io + 1,
@@ -291,13 +306,11 @@ mod test {
     nebula::ic::IC,
     provider::{Bn256EngineKZG, PallasEngine, Secp256k1Engine},
     traits::snark::default_ck_hint,
-    StepCounterType,
   };
 
   #[derive(Clone)]
   struct SquareCircuit<F> {
     _p: PhantomData<F>,
-    counter_type: StepCounterType,
   }
 
   impl<F: PrimeField> StepCircuit<F> for SquareCircuit<F> {
@@ -317,15 +330,12 @@ mod test {
     }
 
     fn non_deterministic_advice(&self) -> Vec<F> {
-      Vec::new()
+      vec![F::ZERO; 3]
     }
   }
 
   fn test_trivial_cyclefold_prove_verify_with<E: CurveCycleEquipped>() {
-    let primary_circuit = SquareCircuit::<E::Scalar> {
-      _p: PhantomData,
-      counter_type: StepCounterType::Incremental,
-    };
+    let primary_circuit = SquareCircuit::<E::Scalar> { _p: PhantomData };
 
     let pp = PublicParams::<E>::setup(&primary_circuit, &*default_ck_hint(), &*default_ck_hint());
 
@@ -333,7 +343,7 @@ mod test {
 
     let mut recursive_snark = RecursiveSNARK::new(&pp, &primary_circuit).unwrap();
     let mut IC_i = E::Scalar::ZERO;
-    let ro_consts = ROConstants::<E>::default();
+
     (0..5).for_each(|iter| {
       let incremental_commitment = recursive_snark
         .prove_step(&pp, &primary_circuit, IC_i)
@@ -341,12 +351,10 @@ mod test {
 
       IC_i = IC::<E>::commit(
         &pp.ck_primary,
-        &ro_consts,
+        &pp.ro_consts_secondary,
         incremental_commitment,
         primary_circuit.non_deterministic_advice(),
       );
-      // let res_verify = recursive_snark.verify(&pp, iter, &z0);
-      // res_verify.unwrap();
     });
   }
 
