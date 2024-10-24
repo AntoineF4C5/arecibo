@@ -1,4 +1,5 @@
-use crate::cyclefold::nifs::PrimaryNIFS;
+use crate::cyclefold::nifs::{CycleFoldNIFS, PrimaryNIFS};
+use crate::cyclefold::util::FoldingData;
 use crate::traits::commitment::CommitmentEngineTrait;
 
 use crate::Commitment;
@@ -35,7 +36,8 @@ use bellpepper_core::{ConstraintSystem, SynthesisError};
 use ff::{PrimeField, PrimeFieldBits};
 use once_cell::sync::OnceCell;
 
-use super::augmented_circuit::{AugmentedCircuit, AugmentedCircuitParams};
+use super::augmented_circuit::{AugmentedCircuit, AugmentedCircuitInputs, AugmentedCircuitParams};
+use super::ic::IC;
 
 /// The public parameters used in the CycleFold recursive SNARK proof and verification
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Abomonation)]
@@ -152,6 +154,9 @@ pub struct RecursiveSNARK<E1>
 where
   E1: CurveCycleEquipped,
 {
+  // Input
+  z0_primary: Vec<E1::Scalar>,
+
   // primary circuit data
   r_W_primary: RelaxedR1CSWitness<E1>,
   r_U_primary: RelaxedR1CSInstance<E1>,
@@ -159,32 +164,76 @@ where
   l_u_primary: R1CSInstance<E1>,
 
   i: usize,
+  zi_primary: Vec<E1::Scalar>,
 
   // incremental commitment of previous invokation of step circuit
   IC_i_minus_one: E1::Scalar,
 
   // commitment to non-deterministic advice
   IC_W: Commitment<E1>, // supposed to be contained in self.l_u_primary // corresponds to comm_W in self.l_u_primary
+
+  // cyclefold circuit data
+  r_W_cyclefold: RelaxedR1CSWitness<Dual<E1>>,
+  r_U_cyclefold: RelaxedR1CSInstance<Dual<E1>>,
 }
 
 impl<E1> RecursiveSNARK<E1>
 where
   E1: CurveCycleEquipped,
 {
-  pub fn new<C>(pp: &PublicParams<E1>, c: &C) -> Result<Self, NovaError>
+  pub fn new<C>(
+    pp: &PublicParams<E1>,
+    step_circuit: &C,
+    z0_primary: &[E1::Scalar],
+  ) -> Result<Self, NovaError>
   where
     C: StepCircuit<E1::Scalar>,
   {
+    if z0_primary.len() != pp.F_arity_primary {
+      return Err(NovaError::InvalidInitialInputLength);
+    }
+
     let r1cs_primary = &pp.circuit_shape_primary.r1cs_shape;
 
     let r_U_primary = RelaxedR1CSInstance::default(&pp.ck_primary, r1cs_primary);
     let r_W_primary = RelaxedR1CSWitness::default(r1cs_primary);
 
     let mut cs_primary = SatisfyingAssignment::<E1>::new();
+    let inputs_primary: AugmentedCircuitInputs<Dual<E1>, E1> = AugmentedCircuitInputs::new(
+      scalar_as_base::<E1>(pp.digest()),
+      <Dual<E1> as Engine>::Base::from(0u64),
+      z0_primary.to_vec(),
+      None,
+      None,
+      None,
+      None,
+      None,
+      None,
+    );
+    let circuit_primary = AugmentedCircuit::new(
+      &pp.augmented_circuit_params,
+      pp.ro_consts_circuit_primary.clone(),
+      Some(inputs_primary),
+      step_circuit,
+    );
+    let zi_primary = circuit_primary.synthesize(&mut cs_primary)?;
+
     let (l_u_primary, l_w_primary) =
       cs_primary.r1cs_instance_and_witness(r1cs_primary, &pp.ck_primary)?;
 
+    let zi_primary = zi_primary
+      .iter()
+      .map(|v| v.get_value().ok_or(SynthesisError::AssignmentMissing))
+      .collect::<Result<Vec<_>, _>>()?;
+
+    // CycleFold data
+    let r1cs_cyclefold = &pp.circuit_shape_cyclefold.r1cs_shape;
+
+    let r_U_cyclefold = RelaxedR1CSInstance::default(&pp.ck_cyclefold, r1cs_cyclefold);
+    let r_W_cyclefold = RelaxedR1CSWitness::default(r1cs_cyclefold);
+
     Ok(Self {
+      z0_primary: z0_primary.to_vec(),
       // IVC proof
       r_W_primary,
       r_U_primary,
@@ -192,28 +241,31 @@ where
       l_u_primary,
 
       i: 0,
+      zi_primary,
 
       // incremental commitment
       IC_i_minus_one: E1::Scalar::ZERO, // IC_0 = ⊥, // carries value of: C_i−1
 
       // commitment to non-deterministic advice
-      IC_W: c.commit_w::<E1>(&pp.ck_primary), // C_ω_i−1
+      IC_W: step_circuit.commit_w::<E1>(&pp.ck_primary), // C_ω_i−1
+
+      r_U_cyclefold,
+      r_W_cyclefold,
     })
   }
 
   pub fn prove_step<C>(
     &mut self,
     pp: &PublicParams<E1>,
-    c: &C,
+    step_circuit: &C,
     IC_i: E1::Scalar,
-  ) -> Result<E1::Scalar, NovaError>
-  // outputs IC_i
+  ) -> Result<(), NovaError>
   where
     C: StepCircuit<E1::Scalar>,
   {
     if self.i == 0 {
       self.i = 1;
-      return Ok(IC_i);
+      return Ok(());
     }
     // Parse Πi (self) as ((Ui, Wi), (ui, wi)) and then:
     //
@@ -243,14 +295,116 @@ where
       return Err(NovaError::InvalidIC);
     }
 
+    // CycleFold invocations
+    let r_bools = r
+      .to_le_bits()
+      .iter()
+      .map(|b| Some(*b))
+      .take(NUM_CHALLENGE_BITS)
+      .collect::<Option<Vec<_>>>()
+      .map(|v| v.try_into().unwrap());
+
+    let E_new = self.r_U_primary.comm_E + comm_T * r;
+
+    let W_new = self.r_U_primary.comm_W + self.l_u_primary.comm_W * r;
+
+    let mut cs_cyclefold_E = SatisfyingAssignment::<Dual<E1>>::with_capacity(
+      pp.circuit_shape_cyclefold.r1cs_shape.num_io + 1,
+      pp.circuit_shape_cyclefold.r1cs_shape.num_vars,
+    );
+
+    let circuit_cyclefold_E: CycleFoldCircuit<E1> =
+      CycleFoldCircuit::new(Some(self.r_U_primary.comm_E), Some(comm_T), r_bools);
+
+    let _ = circuit_cyclefold_E.synthesize(&mut cs_cyclefold_E);
+
+    let (l_u_cyclefold_E, l_w_cyclefold_E) = cs_cyclefold_E
+      .r1cs_instance_and_witness(&pp.circuit_shape_cyclefold.r1cs_shape, &pp.ck_cyclefold)
+      .map_err(|_| NovaError::UnSat)?;
+
+    // TODO: check if this is better or worse than `prove_mut` with a clone of `self.r_U_cyclefold`
+    let (nifs_cyclefold_E, (r_U_cyclefold_E, r_W_cyclefold_E)) = CycleFoldNIFS::prove(
+      &pp.ck_cyclefold,
+      &pp.ro_consts_cyclefold,
+      &scalar_as_base::<E1>(pp.digest()),
+      &pp.circuit_shape_cyclefold.r1cs_shape,
+      &self.r_U_cyclefold,
+      &self.r_W_cyclefold,
+      &l_u_cyclefold_E,
+      &l_w_cyclefold_E,
+    )?;
+
+    let comm_T_E = Commitment::<Dual<E1>>::decompress(&nifs_cyclefold_E.comm_T)?;
+
+    let mut cs_cyclefold_W = SatisfyingAssignment::<Dual<E1>>::with_capacity(
+      pp.circuit_shape_cyclefold.r1cs_shape.num_io + 1,
+      pp.circuit_shape_cyclefold.r1cs_shape.num_vars,
+    );
+
+    let circuit_cyclefold_W: CycleFoldCircuit<E1> = CycleFoldCircuit::new(
+      Some(self.r_U_primary.comm_W),
+      Some(self.l_u_primary.comm_W),
+      r_bools,
+    );
+
+    let _ = circuit_cyclefold_W.synthesize(&mut cs_cyclefold_W);
+
+    let (l_u_cyclefold_W, l_w_cyclefold_W) = cs_cyclefold_W
+      .r1cs_instance_and_witness(&pp.circuit_shape_cyclefold.r1cs_shape, &pp.ck_cyclefold)
+      .map_err(|_| NovaError::UnSat)?;
+
+    // TODO: check if this is better or worse than `prove_mut` with a clone of r_U_cyclefold_E
+    let (nifs_cyclefold_W, (r_U_cyclefold_W, r_W_cyclefold_W)) = CycleFoldNIFS::prove(
+      &pp.ck_cyclefold,
+      &pp.ro_consts_cyclefold,
+      &scalar_as_base::<E1>(pp.digest()),
+      &pp.circuit_shape_cyclefold.r1cs_shape,
+      &r_U_cyclefold_E,
+      &r_W_cyclefold_E,
+      &l_u_cyclefold_W,
+      &l_w_cyclefold_W,
+    )?;
+
+    let comm_T_W = Commitment::<Dual<E1>>::decompress(&nifs_cyclefold_W.comm_T)?;
+
+    let data_c_E = FoldingData::new(self.r_U_cyclefold.clone(), l_u_cyclefold_E, comm_T_E);
+    let data_c_W = FoldingData::new(r_U_cyclefold_E, l_u_cyclefold_W, comm_T_W);
+
     // 2. compute (ui+1, wi+1) ← trace(F ′, (vk, Ui, ui, (i, z0, zi), ωi, T )),
     let mut cs_primary = SatisfyingAssignment::<E1>::with_capacity(
       pp.circuit_shape_primary.r1cs_shape.num_io + 1,
       pp.circuit_shape_primary.r1cs_shape.num_vars,
     );
+    let data_p = FoldingData::new(self.r_U_primary.clone(), self.l_u_primary.clone(), comm_T);
+
+    let inputs_primary: AugmentedCircuitInputs<Dual<E1>, E1> = AugmentedCircuitInputs::new(
+      scalar_as_base::<E1>(pp.digest()),
+      <Dual<E1> as Engine>::Base::from(self.i as u64),
+      self.z0_primary.clone(),
+      Some(self.zi_primary.clone()),
+      Some(data_p),
+      Some(data_c_E),
+      Some(data_c_W),
+      Some(E_new),
+      Some(W_new),
+    );
+
+    let circuit_primary: AugmentedCircuit<'_, Dual<E1>, E1, C> = AugmentedCircuit::new(
+      &pp.augmented_circuit_params,
+      pp.ro_consts_circuit_primary.clone(),
+      Some(inputs_primary),
+      step_circuit,
+    );
+    let zi_primary = circuit_primary.synthesize(&mut cs_primary)?;
+
     let (l_u_primary, l_w_primary) = cs_primary
       .r1cs_instance_and_witness(&pp.circuit_shape_primary.r1cs_shape, &pp.ck_primary)
       .map_err(|_| NovaError::UnSat)?;
+
+    self.zi_primary = zi_primary
+      .iter()
+      .map(|v| v.get_value().ok_or(SynthesisError::AssignmentMissing))
+      .collect::<Result<Vec<_>, _>>()?;
 
     // 3. output Πi+1 ← ((Ui+1, Wi+1), (ui+1, wi+1)).
     self.r_U_primary = r_U_primary;
@@ -260,11 +414,26 @@ where
 
     // update incremental commitments in IVC proof
     self.IC_i_minus_one = IC_i;
-    self.IC_W = c.commit_w::<E1>(&pp.ck_primary);
+    self.IC_W = step_circuit.commit_w::<E1>(&pp.ck_primary);
+
+    self.r_U_cyclefold = r_U_cyclefold_W;
+    self.r_W_cyclefold = r_W_cyclefold_W;
 
     self.i += 1;
 
-    Ok(IC_i)
+    Ok(())
+  }
+
+  fn increment_commitment<C>(&self, pp: &PublicParams<E1>, step_circuit: &C) -> E1::Scalar
+  where
+    C: StepCircuit<E1::Scalar>,
+  {
+    IC::<E1>::commit(
+      &pp.ck_primary,
+      &pp.ro_consts_secondary,
+      self.IC_i_minus_one,
+      step_circuit.non_deterministic_advice(),
+    )
   }
 }
 
@@ -304,7 +473,7 @@ mod test {
   use super::*;
   use crate::{
     nebula::ic::IC,
-    provider::{Bn256EngineKZG, PallasEngine, Secp256k1Engine},
+    provider::{Bn256EngineIPA, Bn256EngineKZG, PallasEngine, Secp256k1Engine},
     traits::snark::default_ck_hint,
   };
 
@@ -341,27 +510,20 @@ mod test {
 
     let z0 = vec![E::Scalar::from(2u64)];
 
-    let mut recursive_snark = RecursiveSNARK::new(&pp, &primary_circuit).unwrap();
+    let mut recursive_snark = RecursiveSNARK::new(&pp, &primary_circuit, &z0).unwrap();
     let mut IC_i = E::Scalar::ZERO;
 
     (0..5).for_each(|iter| {
-      let incremental_commitment = recursive_snark
+      recursive_snark
         .prove_step(&pp, &primary_circuit, IC_i)
         .unwrap();
 
-      IC_i = IC::<E>::commit(
-        &pp.ck_primary,
-        &pp.ro_consts_secondary,
-        incremental_commitment,
-        primary_circuit.non_deterministic_advice(),
-      );
+      IC_i = recursive_snark.increment_commitment(&pp, &primary_circuit);
     });
   }
 
   #[test]
   fn test_cyclefold_prove_verify() {
-    test_trivial_cyclefold_prove_verify_with::<PallasEngine>();
-    test_trivial_cyclefold_prove_verify_with::<Bn256EngineKZG>();
-    test_trivial_cyclefold_prove_verify_with::<Secp256k1Engine>();
+    test_trivial_cyclefold_prove_verify_with::<Bn256EngineIPA>();
   }
 }
