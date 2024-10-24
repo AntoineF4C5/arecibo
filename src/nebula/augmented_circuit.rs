@@ -394,11 +394,11 @@ where
     Ok((U_c, U_p, checks_pass))
   }
 
+  /// Circuit is documented here: https://hackmd.io/SBvAur_2RQmaduDi7gYbhw
   pub fn synthesize<CS: ConstraintSystem<<E1 as Engine>::Base>>(
     self,
     cs: &mut CS,
   ) -> Result<Vec<AllocatedNum<E1::Base>>, SynthesisError> {
-    // Circuit is documented here: https://hackmd.io/SBvAur_2RQmaduDi7gYbhw
     let arity = self.step_circuit.arity();
 
     // Allocate the witness
@@ -408,8 +408,14 @@ where
     let zero = alloc_zero(cs.namespace(|| "zero"));
     let is_base_case = alloc_num_equals(cs.namespace(|| "is base case"), &i, &zero)?;
 
+    //  If i=0:
+    //
+    //  Set Ui+1 ← (u⊥,...,u⊥)
     let (Unew_c_base, Unew_p_base) = self.synthesize_base_case(cs.namespace(|| "base case"))?;
 
+    // Otherwise:
+    //
+    // compute Ui+1 ← NIFS.V(vk, U, u, T ),
     let (Unew_c_non_base, Unew_p_non_base, check_non_base_pass) = self.synthesize_non_base_case(
       cs.namespace(|| "synthesize non base case"),
       &pp_digest,
@@ -469,6 +475,7 @@ where
       &Boolean::from(is_base_case),
     )?;
 
+    // Compute the next output zi+1 ← Fj(zi,ωi).
     let z_next = self
       .step_circuit
       .synthesize(&mut cs.namespace(|| "F"), &z_input)?;
