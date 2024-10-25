@@ -635,7 +635,7 @@ mod test {
     let mut recursive_snark = RecursiveSNARK::new(&pp, &primary_circuit, &z0).unwrap();
     let mut IC_i = E::Base::ZERO;
 
-    (0..2).for_each(|i| {
+    (0..5).for_each(|i| {
       recursive_snark
         .prove_step(&pp, &primary_circuit, IC_i)
         .unwrap();

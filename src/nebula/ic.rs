@@ -34,8 +34,7 @@ where
     let comm_w_input = E1::CE::commit(ck, &w_input);
     let mut ro = <Dual<E1> as Engine>::RO::new(ro_consts.clone(), 4); // prev_comm, x, y, inf
 
-    // ro.absorb(scalar_as_base::<E1>(prev_comm));
-    // comm_w_input.absorb_in_ro(&mut ro);
+    ro.absorb(scalar_as_base::<Dual<E1>>(prev_comm));
     absorb_primary_commitment::<E1, Dual<E1>>(&comm_w_input, &mut ro);
     ro.squeeze(NUM_HASH_BITS)
   }
