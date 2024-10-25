@@ -613,7 +613,7 @@ mod test {
     }
   }
 
-  fn test_trivial_cyclefold_prove_verify_with<E: CurveCycleEquipped>() {
+  fn test_trivial_cyclefold_prove_verify_with<E: CurveCycleEquipped>() -> Result<(), NovaError> {
     let primary_circuit = SquareCircuit::<E::Scalar> { _p: PhantomData };
 
     let pp = PublicParams::<E>::setup(&primary_circuit, &*default_ck_hint(), &*default_ck_hint());
@@ -623,19 +623,20 @@ mod test {
     let mut recursive_snark = RecursiveSNARK::new(&pp, &primary_circuit, &z0).unwrap();
     let mut IC_i = E::Scalar::ZERO;
 
-    (0..10).for_each(|i| {
-      recursive_snark
-        .prove_step(&pp, &primary_circuit, IC_i)
-        .unwrap();
+    for i in 0..10 {
+      recursive_snark.prove_step(&pp, &primary_circuit, IC_i)?;
 
+      // TODO: figure out if i should put this in the rs API?
       IC_i = recursive_snark.increment_commitment(&pp, &primary_circuit);
 
       recursive_snark.verify(&pp, i + 1, &z0, IC_i).unwrap();
-    });
+    }
+
+    Ok(())
   }
 
   #[test]
-  fn test_cyclefold_prove_verify() {
-    test_trivial_cyclefold_prove_verify_with::<Bn256EngineIPA>();
+  fn test_cyclefold_prove_verify() -> Result<(), NovaError> {
+    test_trivial_cyclefold_prove_verify_with::<Bn256EngineIPA>()
   }
 }
