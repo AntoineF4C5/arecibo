@@ -229,7 +229,7 @@ where
       self.params.n_limbs,
     )?;
 
-    let prev_IC = AllocatedNum::alloc(cs.namespace(|| format!("prev_IC")), || {
+    let prev_IC = AllocatedNum::alloc(cs.namespace(|| "prev_IC"), || {
       Ok(
         *self
           .inputs

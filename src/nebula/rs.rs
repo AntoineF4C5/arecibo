@@ -1,3 +1,4 @@
+//! This module implements a SNARK that proves the correct execution of an incremental computation
 use crate::cyclefold::nifs::{CycleFoldNIFS, PrimaryNIFS};
 use crate::cyclefold::util::{absorb_primary_relaxed_r1cs, FoldingData};
 use crate::traits::commitment::CommitmentEngineTrait;
@@ -16,15 +17,12 @@ use crate::{
   cyclefold::circuit::CycleFoldCircuit,
   errors::NovaError,
   gadgets::scalar_as_base,
-  r1cs::{
-    self, CommitmentKeyHint, R1CSInstance, R1CSResult, R1CSWitness, RelaxedR1CSInstance,
-    RelaxedR1CSWitness,
-  },
+  r1cs::{CommitmentKeyHint, R1CSInstance, R1CSWitness, RelaxedR1CSInstance, RelaxedR1CSWitness},
   traits::{
     commitment::CommitmentTrait, AbsorbInROTrait, CurveCycleEquipped, Dual, Engine,
     ROConstantsCircuit, ROTrait,
   },
-  CommitmentKey, DigestComputer, R1CSWithArity, ROConstants, ResourceBuffer, SimpleDigestible,
+  CommitmentKey, DigestComputer, R1CSWithArity, ROConstants, SimpleDigestible,
 };
 use bellpepper_core::num::AllocatedNum;
 use ff::Field;
@@ -179,6 +177,7 @@ impl<E1> RecursiveSNARK<E1>
 where
   E1: CurveCycleEquipped,
 {
+  /// Create a new instance of RecursiveSNARK
   pub fn new<C>(
     pp: &PublicParams<E1>,
     step_circuit: &C,
@@ -254,6 +253,8 @@ where
     })
   }
 
+  /// Create a new `RecursiveSNARK` (or updates the provided `RecursiveSNARK`)
+  /// by executing a step of the incremental computation
   pub fn prove_step<C>(
     &mut self,
     pp: &PublicParams<E1>,
@@ -535,7 +536,8 @@ where
     Ok(self.zi.to_vec())
   }
 
-  fn increment_commitment<C>(&self, pp: &PublicParams<E1>, step_circuit: &C) -> E1::Scalar
+  /// Increment the incremental commitment with the new non-deterministic witness from the circuit
+  pub fn increment_commitment<C>(&self, pp: &PublicParams<E1>, step_circuit: &C) -> E1::Scalar
   where
     C: StepCircuit<E1::Scalar>,
   {
@@ -564,9 +566,10 @@ pub trait StepCircuit<F: PrimeField>: Send + Sync + Clone {
     z: &[AllocatedNum<F>],
   ) -> Result<Vec<AllocatedNum<F>>, SynthesisError>;
 
-  // Get the non-deterministic advice we will commit to
+  /// Get the non-deterministic advice we will commit to
   fn non_deterministic_advice(&self) -> Vec<F>;
 
+  /// Produce a commitment to the non_deterministic advice
   fn commit_w<E>(&self, ck: &CommitmentKey<E>) -> Commitment<E>
   where
     E: Engine<Scalar = F>,
@@ -582,11 +585,7 @@ mod test {
   use bellpepper_core::num::AllocatedNum;
 
   use super::*;
-  use crate::{
-    nebula::ic::IC,
-    provider::{Bn256EngineIPA, Bn256EngineKZG, PallasEngine, Secp256k1Engine},
-    traits::snark::default_ck_hint,
-  };
+  use crate::{provider::Bn256EngineIPA, traits::snark::default_ck_hint};
 
   #[derive(Clone)]
   struct SquareCircuit<F> {
@@ -610,7 +609,7 @@ mod test {
     }
 
     fn non_deterministic_advice(&self) -> Vec<F> {
-      vec![F::ZERO; 3]
+      [F::from(1), F::from(2), F::from(3)].to_vec()
     }
   }
 
