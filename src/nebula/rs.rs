@@ -84,7 +84,7 @@ where
     let ro_consts_circuit_primary = ROConstantsCircuit::<Dual<E1>>::default();
 
     let augmented_circuit_params = AugmentedCircuitParams::new(BN_LIMB_WIDTH, BN_N_LIMBS);
-    let circuit_primary: AugmentedCircuit<'_, Dual<E1>, E1, C1> = AugmentedCircuit::new(
+    let circuit_primary: AugmentedCircuit<'_, E1, C1> = AugmentedCircuit::new(
       &augmented_circuit_params,
       ro_consts_circuit_primary.clone(),
       None,
@@ -197,7 +197,7 @@ where
     let r_W_primary = RelaxedR1CSWitness::default(r1cs_primary);
 
     let mut cs_primary = SatisfyingAssignment::<E1>::new();
-    let inputs_primary: AugmentedCircuitInputs<Dual<E1>, E1> = AugmentedCircuitInputs::new(
+    let inputs_primary: AugmentedCircuitInputs<E1> = AugmentedCircuitInputs::new(
       scalar_as_base::<E1>(pp.digest()),
       <Dual<E1> as Engine>::Base::from(0u64),
       z0.to_vec(),
@@ -381,7 +381,7 @@ where
     );
     let data_p = FoldingData::new(self.r_U_primary.clone(), self.l_u_primary.clone(), comm_T);
 
-    let inputs_primary: AugmentedCircuitInputs<Dual<E1>, E1> = AugmentedCircuitInputs::new(
+    let inputs_primary: AugmentedCircuitInputs<E1> = AugmentedCircuitInputs::new(
       scalar_as_base::<E1>(pp.digest()),
       <Dual<E1> as Engine>::Base::from(self.i as u64),
       self.z0.clone(),
@@ -395,7 +395,7 @@ where
       Some(self.comm_omega_prev),
     );
 
-    let circuit_primary: AugmentedCircuit<'_, Dual<E1>, E1, C> = AugmentedCircuit::new(
+    let circuit_primary: AugmentedCircuit<'_, E1, C> = AugmentedCircuit::new(
       &pp.augmented_circuit_params,
       pp.ro_consts_circuit_primary.clone(),
       Some(inputs_primary),
@@ -462,7 +462,7 @@ where
     let (hash_primary, hash_cyclefold) = {
       let mut hasher_p = <Dual<E1> as Engine>::RO::new(
         pp.ro_consts_primary.clone(),
-        3 + 2 * pp.F_arity_primary + 2 * NUM_FE_IN_EMULATED_POINT + 3,
+        2 + 2 * pp.F_arity_primary + 2 * NUM_FE_IN_EMULATED_POINT + 3,
       );
       hasher_p.absorb(pp.digest());
       hasher_p.absorb(E1::Scalar::from(num_steps as u64));

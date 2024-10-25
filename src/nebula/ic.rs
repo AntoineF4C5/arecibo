@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::constants::NUM_HASH_BITS;
+use crate::cyclefold::util::absorb_primary_commitment;
 use crate::gadgets::scalar_as_base;
 use crate::traits::commitment::CommitmentEngineTrait;
 use crate::traits::AbsorbInROTrait;
@@ -35,6 +36,7 @@ where
 
     // ro.absorb(scalar_as_base::<E1>(prev_comm));
     // comm_w_input.absorb_in_ro(&mut ro);
+    absorb_primary_commitment::<E1, Dual<E1>>(&comm_w_input, &mut ro);
     ro.squeeze(NUM_HASH_BITS)
   }
 }

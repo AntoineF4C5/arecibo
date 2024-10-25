@@ -6,7 +6,10 @@ use crate::{
     alloc_num_equals, alloc_scalar_as_base, alloc_zero, le_bits_to_num,
     AllocatedRelaxedR1CSInstance,
   },
-  traits::{commitment::CommitmentTrait, Engine, ROCircuitTrait, ROConstantsCircuit},
+  traits::{
+    commitment::CommitmentTrait, CurveCycleEquipped, Dual, Engine, ROCircuitTrait,
+    ROConstantsCircuit,
+  },
   Commitment,
 };
 
@@ -45,45 +48,43 @@ impl AugmentedCircuitParams {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(bound = "")]
-pub struct AugmentedCircuitInputs<E1, E2>
+pub struct AugmentedCircuitInputs<E1>
 where
-  E1: Engine<Base = <E2 as Engine>::Scalar>,
-  E2: Engine<Base = <E1 as Engine>::Scalar>,
+  E1: CurveCycleEquipped,
 {
-  pp_digest: E1::Scalar,
-  i: E1::Base,
-  z0: Vec<E1::Base>,
+  pp_digest: E1::Base,
+  i: E1::Scalar,
+  z0: Vec<E1::Scalar>,
 
-  zi: Option<Vec<E1::Base>>,
-  data_p: Option<FoldingData<E2>>,
+  zi: Option<Vec<E1::Scalar>>,
+  data_p: Option<FoldingData<E1>>,
 
-  data_c_1: Option<FoldingData<E1>>,
-  data_c_2: Option<FoldingData<E1>>,
+  data_c_1: Option<FoldingData<Dual<E1>>>,
+  data_c_2: Option<FoldingData<Dual<E1>>>,
 
-  E_new: Option<Commitment<E2>>,
-  W_new: Option<Commitment<E2>>,
+  E_new: Option<Commitment<E1>>,
+  W_new: Option<Commitment<E1>>,
 
-  prev_IC: Option<E1::Scalar>,
-  comm_omega_prev: Option<Commitment<E2>>,
+  prev_IC: Option<E1::Base>,
+  comm_omega_prev: Option<Commitment<E1>>,
 }
 
-impl<E1, E2> AugmentedCircuitInputs<E1, E2>
+impl<E1> AugmentedCircuitInputs<E1>
 where
-  E1: Engine<Base = <E2 as Engine>::Scalar>,
-  E2: Engine<Base = <E1 as Engine>::Scalar>,
+  E1: CurveCycleEquipped,
 {
   pub fn new(
-    pp_digest: E1::Scalar,
-    i: E1::Base,
-    z0: Vec<E1::Base>,
-    zi: Option<Vec<E1::Base>>,
-    data_p: Option<FoldingData<E2>>,
-    data_c_1: Option<FoldingData<E1>>,
-    data_c_2: Option<FoldingData<E1>>,
-    E_new: Option<Commitment<E2>>,
-    W_new: Option<Commitment<E2>>,
-    prev_IC: Option<E1::Scalar>,
-    comm_omega_prev: Option<Commitment<E2>>,
+    pp_digest: E1::Base,
+    i: E1::Scalar,
+    z0: Vec<E1::Scalar>,
+    zi: Option<Vec<E1::Scalar>>,
+    data_p: Option<FoldingData<E1>>,
+    data_c_1: Option<FoldingData<Dual<E1>>>,
+    data_c_2: Option<FoldingData<Dual<E1>>>,
+    E_new: Option<Commitment<E1>>,
+    W_new: Option<Commitment<E1>>,
+    prev_IC: Option<E1::Base>,
+    comm_omega_prev: Option<Commitment<E1>>,
   ) -> Self {
     Self {
       pp_digest,
@@ -100,28 +101,27 @@ where
     }
   }
 }
-pub struct AugmentedCircuit<'a, E1, E2, SC>
+
+pub struct AugmentedCircuit<'a, E1, SC>
 where
-  E1: Engine<Base = <E2 as Engine>::Scalar>,
-  E2: Engine<Base = <E1 as Engine>::Scalar>,
-  SC: StepCircuit<E2::Scalar>,
+  E1: CurveCycleEquipped,
+  SC: StepCircuit<E1::Scalar>,
 {
   params: &'a AugmentedCircuitParams,
-  ro_consts: ROConstantsCircuit<E1>,
-  inputs: Option<AugmentedCircuitInputs<E1, E2>>,
+  ro_consts: ROConstantsCircuit<Dual<E1>>,
+  inputs: Option<AugmentedCircuitInputs<E1>>,
   step_circuit: &'a SC,
 }
 
-impl<'a, E1, E2, SC> AugmentedCircuit<'a, E1, E2, SC>
+impl<'a, E1, SC> AugmentedCircuit<'a, E1, SC>
 where
-  E1: Engine<Base = <E2 as Engine>::Scalar>,
-  E2: Engine<Base = <E1 as Engine>::Scalar>,
-  SC: StepCircuit<E2::Scalar>,
+  E1: CurveCycleEquipped,
+  SC: StepCircuit<E1::Scalar>,
 {
   pub const fn new(
     params: &'a AugmentedCircuitParams,
-    ro_consts: ROConstantsCircuit<E1>,
-    inputs: Option<AugmentedCircuitInputs<E1, E2>>,
+    ro_consts: ROConstantsCircuit<Dual<E1>>,
+    inputs: Option<AugmentedCircuitInputs<E1>>,
     step_circuit: &'a SC,
   ) -> Self {
     Self {
@@ -132,27 +132,27 @@ where
     }
   }
 
-  fn alloc_witness<CS: ConstraintSystem<<E1 as Engine>::Base>>(
+  fn alloc_witness<CS: ConstraintSystem<<E1 as Engine>::Scalar>>(
     &self,
     mut cs: CS,
     arity: usize,
   ) -> Result<
     (
-      AllocatedNum<E1::Base>,               // pp_digest
-      AllocatedNum<E1::Base>,               // i
-      Vec<AllocatedNum<E1::Base>>,          // z0
-      Vec<AllocatedNum<E1::Base>>,          // zi
-      emulated::AllocatedFoldingData<E1>,   //data_p
-      AllocatedCycleFoldData<E1>,           // data_c_1
-      AllocatedCycleFoldData<E1>,           // data_c_2
-      emulated::AllocatedEmulPoint<E1::GE>, // E_new
-      emulated::AllocatedEmulPoint<E1::GE>, // W_new
-      // AllocatedNum<E1::Base>,               // prev_IC
-      emulated::AllocatedEmulPoint<E1::GE>, // comm_omega_prev
+      AllocatedNum<E1::Scalar>,                               // pp_digest
+      AllocatedNum<E1::Scalar>,                               // i
+      Vec<AllocatedNum<E1::Scalar>>,                          // z0
+      Vec<AllocatedNum<E1::Scalar>>,                          // zi
+      emulated::AllocatedFoldingData<Dual<E1>>,               //data_p
+      AllocatedCycleFoldData<Dual<E1>>,                       // data_c_1
+      AllocatedCycleFoldData<Dual<E1>>,                       // data_c_2
+      emulated::AllocatedEmulPoint<<Dual<E1> as Engine>::GE>, // E_new
+      emulated::AllocatedEmulPoint<<Dual<E1> as Engine>::GE>, // W_new
+      // AllocatedNum<<Dual<E1> as Engine>::Base>,               // prev_IC
+      emulated::AllocatedEmulPoint<<Dual<E1> as Engine>::GE>, // comm_omega_prev
     ),
     SynthesisError,
   > {
-    let pp_digest = alloc_scalar_as_base::<E1, _>(
+    let pp_digest = alloc_scalar_as_base::<Dual<E1>, _>(
       cs.namespace(|| "params"),
       self.inputs.as_ref().map(|inputs| inputs.pp_digest),
     )?;
@@ -165,17 +165,17 @@ where
           Ok(self.inputs.get()?.z0[i])
         })
       })
-      .collect::<Result<Vec<AllocatedNum<E1::Base>>, _>>()?;
+      .collect::<Result<Vec<AllocatedNum<E1::Scalar>>, _>>()?;
 
     // Allocate zi. If inputs.zi is not provided (base case) allocate default value 0
-    let zero = vec![E1::Base::ZERO; arity];
+    let zero_vec = vec![E1::Scalar::ZERO; arity];
     let z_i = (0..arity)
       .map(|i| {
         AllocatedNum::alloc(cs.namespace(|| format!("zi_{i}")), || {
-          Ok(self.inputs.get()?.zi.as_ref().unwrap_or(&zero)[i])
+          Ok(self.inputs.get()?.zi.as_ref().unwrap_or(&zero_vec)[i])
         })
       })
-      .collect::<Result<Vec<AllocatedNum<E1::Base>>, _>>()?;
+      .collect::<Result<Vec<AllocatedNum<E1::Scalar>>, _>>()?;
 
     let data_p = emulated::AllocatedFoldingData::alloc(
       cs.namespace(|| "data_p"),
@@ -266,13 +266,13 @@ where
     ))
   }
 
-  pub fn synthesize_base_case<CS: ConstraintSystem<<E1 as Engine>::Base>>(
+  pub fn synthesize_base_case<CS: ConstraintSystem<<E1 as Engine>::Scalar>>(
     &self,
     mut cs: CS,
   ) -> Result<
     (
-      AllocatedRelaxedR1CSInstance<E1, NIO_CYCLE_FOLD>,
-      emulated::AllocatedEmulRelaxedR1CSInstance<E1>,
+      AllocatedRelaxedR1CSInstance<Dual<E1>, NIO_CYCLE_FOLD>,
+      emulated::AllocatedEmulRelaxedR1CSInstance<Dual<E1>>,
     ),
     SynthesisError,
   > {
@@ -293,24 +293,24 @@ where
     Ok((U_c_default, U_p_default))
   }
 
-  pub fn synthesize_non_base_case<CS: ConstraintSystem<<E1 as Engine>::Base>>(
+  pub fn synthesize_non_base_case<CS: ConstraintSystem<E1::Scalar>>(
     &self,
     mut cs: CS,
-    pp_digest: &AllocatedNum<E1::Base>,
-    i: &AllocatedNum<E1::Base>,
-    z_0: &[AllocatedNum<E1::Base>],
-    z_i: &[AllocatedNum<E1::Base>],
-    data_p: &emulated::AllocatedFoldingData<E1>,
-    data_c_1: &AllocatedCycleFoldData<E1>,
-    data_c_2: &AllocatedCycleFoldData<E1>,
-    E_new: emulated::AllocatedEmulPoint<E1::GE>,
-    W_new: emulated::AllocatedEmulPoint<E1::GE>,
+    pp_digest: &AllocatedNum<E1::Scalar>,
+    i: &AllocatedNum<E1::Scalar>,
+    z_0: &[AllocatedNum<E1::Scalar>],
+    z_i: &[AllocatedNum<E1::Scalar>],
+    data_p: &emulated::AllocatedFoldingData<Dual<E1>>,
+    data_c_1: &AllocatedCycleFoldData<Dual<E1>>,
+    data_c_2: &AllocatedCycleFoldData<Dual<E1>>,
+    E_new: emulated::AllocatedEmulPoint<<Dual<E1> as Engine>::GE>,
+    W_new: emulated::AllocatedEmulPoint<<Dual<E1> as Engine>::GE>,
     arity: usize,
     // prev_IC: &AllocatedNum<E1::Base>,
   ) -> Result<
     (
-      AllocatedRelaxedR1CSInstance<E1, NIO_CYCLE_FOLD>,
-      emulated::AllocatedEmulRelaxedR1CSInstance<E1>,
+      AllocatedRelaxedR1CSInstance<Dual<E1>, NIO_CYCLE_FOLD>,
+      emulated::AllocatedEmulRelaxedR1CSInstance<Dual<E1>>,
       AllocatedBit,
     ),
     SynthesisError,
@@ -318,9 +318,9 @@ where
     // Follows the outline written down here https://hackmd.io/@lurk-lab/HybHrnNFT
 
     // Calculate the hash of the non-deterministic advice for the primary circuit
-    let mut ro_p = E1::ROCircuit::new(
+    let mut ro_p = <Dual<E1> as Engine>::ROCircuit::new(
       self.ro_consts.clone(),
-      3 + 2 * arity + 2 * NUM_FE_IN_EMULATED_POINT + 3,
+      2 + 2 * arity + 2 * NUM_FE_IN_EMULATED_POINT + 3,
     );
 
     ro_p.absorb(pp_digest);
@@ -347,7 +347,7 @@ where
     )?;
 
     // Calculate the hash of the non-dterministic advice for the secondary circuit
-    let mut ro_c = E1::ROCircuit::new(
+    let mut ro_c = <Dual<E1> as Engine>::ROCircuit::new(
       self.ro_consts.clone(),
       1 + 1 + 3 + 3 + 1 + NIO_CYCLE_FOLD * BN_N_LIMBS, // pp + i + W + E + u + X
     );
@@ -383,7 +383,7 @@ where
     )?;
 
     // Calculate h_int = H(pp, U_c_int)
-    let mut ro_c_int = E1::ROCircuit::new(
+    let mut ro_c_int = <Dual<E1> as Engine>::ROCircuit::new(
       self.ro_consts.clone(),
       1 + 3 + 3 + 1 + NIO_CYCLE_FOLD * BN_N_LIMBS, // pp + W + E + u + X
     );
@@ -394,7 +394,7 @@ where
     let h_c_int = le_bits_to_num(cs.namespace(|| "intermediate hash"), &h_c_int_bits)?;
 
     // Calculate h_1 = H(pp, U_c_1)
-    let mut ro_c_1 = E1::ROCircuit::new(
+    let mut ro_c_1 = <Dual<E1> as Engine>::ROCircuit::new(
       self.ro_consts.clone(),
       1 + 3 + 3 + 1 + NIO_CYCLE_FOLD * BN_N_LIMBS, // pp + W + E + u + X
     );
@@ -441,10 +441,10 @@ where
   }
 
   /// Circuit is documented here: https://hackmd.io/SBvAur_2RQmaduDi7gYbhw
-  pub fn synthesize<CS: ConstraintSystem<<E1 as Engine>::Base>>(
+  pub fn synthesize<CS: ConstraintSystem<E1::Scalar>>(
     self,
     cs: &mut CS,
-  ) -> Result<Vec<AllocatedNum<E1::Base>>, SynthesisError> {
+  ) -> Result<Vec<AllocatedNum<E1::Scalar>>, SynthesisError> {
     let arity = self.step_circuit.arity();
 
     // Allocate the witness
@@ -516,7 +516,7 @@ where
 
     // Compute i + 1
     let i_new = AllocatedNum::alloc(cs.namespace(|| "i + 1"), || {
-      Ok(*i.get_value().get()? + E1::Base::ONE)
+      Ok(*i.get_value().get()? + E1::Scalar::ONE)
     })?;
     cs.enforce(
       || "check i + 1",
@@ -544,34 +544,35 @@ where
       ));
     }
 
-    // compute incremental commitment
-    let IC_i_base_case =
-      AllocatedNum::alloc(cs.namespace(|| "select input to F"), || Ok(E1::Base::ZERO))?;
+    // // compute incremental commitment
+    // let IC_i_base_case = AllocatedNum::alloc(cs.namespace(|| "select input to F"), || {
+    //   Ok(E1::Scalar::ZERO)
+    // })?;
 
-    let IC_i_non_base_case = {
-      let mut ro = E1::ROCircuit::new(
-        self.ro_consts.clone(),
-        1 + NUM_FE_IN_EMULATED_POINT, // IC_prev + comm_omega_prev
-      );
-      // ro.absorb(&prev_IC);
-      comm_omega_prev.absorb_in_ro(cs.namespace(|| "absorb comm_omega_prev"), &mut ro)?;
+    // let IC_i_non_base_case = {
+    //   let mut ro = E1::ROCircuit::new(
+    //     self.ro_consts.clone(),
+    //     1 + NUM_FE_IN_EMULATED_POINT, // IC_prev + comm_omega_prev
+    //   );
+    //   // ro.absorb(&prev_IC);
+    //   comm_omega_prev.absorb_in_ro(cs.namespace(|| "absorb comm_omega_prev"), &mut ro)?;
 
-      let hash_IC_bits = ro.squeeze(cs.namespace(|| "hash_IC_bits"), NUM_HASH_BITS)?;
-      le_bits_to_num(cs.namespace(|| "hash_IC"), &hash_IC_bits)?
-    };
+    //   let hash_IC_bits = ro.squeeze(cs.namespace(|| "hash_IC_bits"), NUM_HASH_BITS)?;
+    //   le_bits_to_num(cs.namespace(|| "hash_IC"), &hash_IC_bits)?
+    // };
 
-    let IC_i = conditionally_select(
-      cs.namespace(|| "select IC"),
-      &IC_i_base_case,
-      &IC_i_non_base_case,
-      &Boolean::from(is_base_case),
-    )?;
+    // let IC_i = conditionally_select(
+    //   cs.namespace(|| "select IC"),
+    //   &IC_i_base_case,
+    //   &IC_i_non_base_case,
+    //   &Boolean::from(is_base_case),
+    // )?;
 
     // Calculate the first component of the public IO as the hash of the calculated primary running
     // instance
-    let mut ro_p = E1::ROCircuit::new(
+    let mut ro_p = <Dual<E1> as Engine>::ROCircuit::new(
       self.ro_consts.clone(),
-      3 + 2 * arity + (2 * NUM_FE_IN_EMULATED_POINT + 3), // pp + i + IC_i + z_0 + z_next + (U_p)
+      2 + 2 * arity + (2 * NUM_FE_IN_EMULATED_POINT + 3), // pp + i + z_0 + z_next + (U_p)
     );
     ro_p.absorb(&pp_digest);
     ro_p.absorb(&i_new);
@@ -582,14 +583,14 @@ where
       ro_p.absorb(e);
     }
     Unew_p.absorb_in_ro(cs.namespace(|| "absorb Unew_p"), &mut ro_p)?;
-    ro_p.absorb(&IC_i);
+    // ro_p.absorb(&IC_i);
 
     let hash_p_bits = ro_p.squeeze(cs.namespace(|| "hash_p_bits"), NUM_HASH_BITS)?;
     let hash_p = le_bits_to_num(cs.namespace(|| "hash_p"), &hash_p_bits)?;
 
     // Calculate the second component of the public IO as the hash of the calculated CycleFold running
     // instance
-    let mut ro_c = E1::ROCircuit::new(
+    let mut ro_c = <Dual<E1> as Engine>::ROCircuit::new(
       self.ro_consts,
       1 + 1 + 3 + 3 + 1 + NIO_CYCLE_FOLD * BN_N_LIMBS, // pp + i + W + E + u + X
     );
@@ -605,53 +606,3 @@ where
     Ok(z_next)
   }
 }
-
-// #[cfg(test)]
-// mod test {
-//   use crate::{
-//     bellpepper::test_shape_cs::TestShapeCS,
-//     constants::{BN_LIMB_WIDTH, BN_N_LIMBS},
-//     provider::{Bn256EngineKZG, PallasEngine, Secp256k1Engine},
-//     traits::{circuit::TrivialCircuit, CurveCycleEquipped, Dual},
-//   };
-
-//   use expect_test::{expect, Expect};
-
-//   use super::*;
-
-//   fn test_augmented_circuit_size_with<E>(expected_cons: &Expect, expected_var: &Expect)
-//   where
-//     E: CurveCycleEquipped,
-//   {
-//     let params = AugmentedCircuitParams::new(BN_LIMB_WIDTH, BN_N_LIMBS);
-
-//     let ro_consts = ROConstantsCircuit::<E>::default();
-
-//     let step_circuit = TrivialCircuit::<E::Base>::default();
-
-//     let circuit = AugmentedCircuit::<E, Dual<E>, TrivialCircuit<E::Base>>::new(
-//       &params,
-//       ro_consts,
-//       None,
-//       &step_circuit,
-//     );
-//     let mut cs: TestShapeCS<Dual<E>> = TestShapeCS::default();
-
-//     let res = circuit.synthesize(&mut cs);
-
-//     res.unwrap();
-
-//     let num_constraints = cs.num_constraints();
-//     let num_variables = cs.num_aux();
-
-//     expected_cons.assert_eq(&num_constraints.to_string());
-//     expected_var.assert_eq(&num_variables.to_string());
-//   }
-
-//   #[test]
-//   fn test_augmented_circuit_size() {
-//     test_augmented_circuit_size_with::<PallasEngine>(&expect!["33289"], &expect!["33323"]);
-//     test_augmented_circuit_size_with::<Secp256k1Engine>(&expect!["35125"], &expect!["35159"]);
-//     test_augmented_circuit_size_with::<Bn256EngineKZG>(&expect!["33856"], &expect!["33890"]);
-//   }
-// }
