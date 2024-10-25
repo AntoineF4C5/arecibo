@@ -248,6 +248,7 @@ where
       // commitment to non-deterministic advice
       comm_omega_prev: step_circuit.commit_w::<E1>(&pp.ck_primary), // C_ω_i−1
 
+      // running Cyclefold instance, witness pair
       r_U_cyclefold,
       r_W_cyclefold,
     })
