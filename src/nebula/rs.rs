@@ -352,7 +352,6 @@ where
       .r1cs_instance_and_witness(&pp.circuit_shape_cyclefold.r1cs_shape, &pp.ck_cyclefold)
       .map_err(|_| NovaError::UnSat)?;
 
-    // TODO: check if this is better or worse than `prove_mut` with a clone of r_U_cyclefold_E
     let (nifs_cyclefold_W, (r_U_cyclefold_W, r_W_cyclefold_W)) = CycleFoldNIFS::prove(
       &pp.ck_cyclefold,
       &pp.ro_consts_cyclefold,
