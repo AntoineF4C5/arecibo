@@ -165,7 +165,7 @@ where
   zi: Vec<E1::Scalar>,
 
   // incremental commitment of previous invokation of step circuit
-  prev_IC: E1::Base,
+  prev_IC: E1::Scalar,
 
   // commitment to non-deterministic advice
   comm_omega_prev: Commitment<E1>, // supposed to be contained in self.l_u_primary // corresponds to comm_W in self.l_u_primary
@@ -244,7 +244,7 @@ where
       zi,
 
       // incremental commitment
-      prev_IC: E1::Base::ZERO, // IC_0 = ⊥, // carries value of: C_i−1
+      prev_IC: E1::Scalar::ZERO, // IC_0 = ⊥, // carries value of: C_i−1
 
       // commitment to non-deterministic advice
       comm_omega_prev: step_circuit.commit_w::<E1>(&pp.ck_primary), // C_ω_i−1
@@ -258,7 +258,7 @@ where
     &mut self,
     pp: &PublicParams<E1>,
     step_circuit: &C,
-    IC_i: E1::Base,
+    IC_i: E1::Scalar,
   ) -> Result<(), NovaError>
   where
     C: StepCircuit<E1::Scalar>,
@@ -283,17 +283,12 @@ where
     let comm_T = Commitment::<E1>::decompress(&nifs_primary.comm_T)?;
 
     // Abort if Ci  != hash(Ci−1, Cωi−1 )
-    // let intermediary_comm = {
-    //   let mut ro = E1::RO::new(pp.ro_consts_secondary.clone(), 4); // prev_comm, x, y, inf
+    let intermediary_comm =
+      IC::<E1>::increment_comm_w(&pp.ro_consts_primary, self.prev_IC, self.comm_omega_prev);
 
-    //   ro.absorb(scalar_as_base::<E1>(self.prev_IC));
-    //   self.comm_omega_prev.absorb_in_ro(&mut ro);
-    //   ro.squeeze(NUM_HASH_BITS)
-    // };
-
-    // if IC_i != intermediary_comm {
-    //   return Err(NovaError::InvalidIC);
-    // }
+    if IC_i != intermediary_comm {
+      return Err(NovaError::InvalidIC);
+    }
 
     /*
      ***** CycleFold invocations *****
@@ -436,7 +431,7 @@ where
     pp: &PublicParams<E1>,
     num_steps: usize,
     z0: &[E1::Scalar],
-    IC_i: E1::Base,
+    IC_i: E1::Scalar,
   ) -> Result<Vec<E1::Scalar>, NovaError> {
     // number of steps cannot be zero
     let is_num_steps_zero = num_steps == 0;
@@ -462,7 +457,7 @@ where
     let (hash_primary, hash_cyclefold) = {
       let mut hasher_p = <Dual<E1> as Engine>::RO::new(
         pp.ro_consts_primary.clone(),
-        2 + 2 * pp.F_arity_primary + 2 * NUM_FE_IN_EMULATED_POINT + 3,
+        3 + 2 * pp.F_arity_primary + 2 * NUM_FE_IN_EMULATED_POINT + 3,
       );
       hasher_p.absorb(pp.digest());
       hasher_p.absorb(E1::Scalar::from(num_steps as u64));
@@ -473,7 +468,7 @@ where
         hasher_p.absorb(*e);
       }
       absorb_primary_relaxed_r1cs::<E1, Dual<E1>>(&self.r_U_primary, &mut hasher_p);
-      // hasher_p.absorb(self.prev_IC);
+      hasher_p.absorb(self.prev_IC);
 
       let hash_primary = hasher_p.squeeze(NUM_HASH_BITS);
 
@@ -530,32 +525,26 @@ where
     res_r_cyclefold?;
 
     // Abort if Ci  != hash(Ci−1, Cωi−1 )
-    // let intermediary_comm = {
-    //   let mut ro = E1::RO::new(pp.ro_consts_secondary.clone(), 4); // prev_comm, x, y, inf
+    let intermediary_comm =
+      IC::<E1>::increment_comm_w(&pp.ro_consts_primary, self.prev_IC, self.comm_omega_prev);
 
-    //   ro.absorb(scalar_as_base::<E1>(self.prev_IC));
-    //   self.comm_omega_prev.absorb_in_ro(&mut ro);
-    //   ro.squeeze(NUM_HASH_BITS)
-    // };
-
-    // if IC_i != intermediary_comm {
-    //   return Err(NovaError::InvalidIC);
-    // }
+    if IC_i != intermediary_comm {
+      return Err(NovaError::InvalidIC);
+    }
 
     Ok(self.zi.to_vec())
   }
 
-  fn increment_commitment<C>(&self, pp: &PublicParams<E1>, step_circuit: &C) -> E1::Base
+  fn increment_commitment<C>(&self, pp: &PublicParams<E1>, step_circuit: &C) -> E1::Scalar
   where
     C: StepCircuit<E1::Scalar>,
   {
-    // IC::<E1>::commit(
-    //   &pp.ck_primary,
-    //   &pp.ro_consts_secondary,
-    //   self.prev_IC,
-    //   step_circuit.non_deterministic_advice(),
-    // )
-    todo!()
+    IC::<E1>::commit(
+      &pp.ck_primary,
+      &pp.ro_consts_primary,
+      self.prev_IC,
+      step_circuit.non_deterministic_advice(),
+    )
   }
 }
 
@@ -633,14 +622,14 @@ mod test {
     let z0 = vec![E::Scalar::from(2u64)];
 
     let mut recursive_snark = RecursiveSNARK::new(&pp, &primary_circuit, &z0).unwrap();
-    let mut IC_i = E::Base::ZERO;
+    let mut IC_i = E::Scalar::ZERO;
 
-    (0..5).for_each(|i| {
+    (0..10).for_each(|i| {
       recursive_snark
         .prove_step(&pp, &primary_circuit, IC_i)
         .unwrap();
 
-      // IC_i = recursive_snark.increment_commitment(&pp, &primary_circuit);
+      IC_i = recursive_snark.increment_commitment(&pp, &primary_circuit);
 
       recursive_snark.verify(&pp, i + 1, &z0, IC_i).unwrap();
     });

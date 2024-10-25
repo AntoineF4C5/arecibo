@@ -1,18 +1,18 @@
 use std::marker::PhantomData;
 
+use crate::constants::NUM_FE_IN_EMULATED_POINT;
 use crate::constants::NUM_HASH_BITS;
 use crate::cyclefold::util::absorb_primary_commitment;
 use crate::gadgets::scalar_as_base;
 use crate::traits::commitment::CommitmentEngineTrait;
-use crate::traits::AbsorbInROTrait;
 use crate::traits::CurveCycleEquipped;
 use crate::traits::Dual;
 use crate::traits::ROTrait;
+use crate::Commitment;
 use crate::{
   traits::{Engine, ROConstants},
   CommitmentKey,
 };
-use ff::Field;
 
 pub struct IC<E1>
 where
@@ -28,14 +28,26 @@ where
   pub fn commit(
     ck: &CommitmentKey<E1>,
     ro_consts: &ROConstants<Dual<E1>>,
-    prev_comm: E1::Base,
+    prev_comm: E1::Scalar,
     w_input: Vec<E1::Scalar>, // non-deterministic witness ω
-  ) -> E1::Base {
+  ) -> E1::Scalar {
     let comm_w_input = E1::CE::commit(ck, &w_input);
-    let mut ro = <Dual<E1> as Engine>::RO::new(ro_consts.clone(), 4); // prev_comm, x, y, inf
+    let mut ro = <Dual<E1> as Engine>::RO::new(ro_consts.clone(), 1 + NUM_FE_IN_EMULATED_POINT); // prev_comm + comm_omega
 
-    ro.absorb(scalar_as_base::<Dual<E1>>(prev_comm));
+    ro.absorb(prev_comm);
     absorb_primary_commitment::<E1, Dual<E1>>(&comm_w_input, &mut ro);
-    ro.squeeze(NUM_HASH_BITS)
+    scalar_as_base::<Dual<E1>>(ro.squeeze(NUM_HASH_BITS))
+  }
+
+  pub fn increment_comm_w(
+    ro_consts: &ROConstants<Dual<E1>>,
+    prev_comm: E1::Scalar,
+    comm_w_input: Commitment<E1>, // commitment to non-deterministic witness ω
+  ) -> E1::Scalar {
+    let mut ro = <Dual<E1> as Engine>::RO::new(ro_consts.clone(), 1 + NUM_FE_IN_EMULATED_POINT); // prev_comm + comm_omega
+
+    ro.absorb(prev_comm);
+    absorb_primary_commitment::<E1, Dual<E1>>(&comm_w_input, &mut ro);
+    scalar_as_base::<Dual<E1>>(ro.squeeze(NUM_HASH_BITS))
   }
 }
