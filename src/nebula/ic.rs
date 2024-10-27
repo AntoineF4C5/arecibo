@@ -25,6 +25,11 @@ impl<E1> IC<E1>
 where
   E1: CurveCycleEquipped,
 {
+  /// Produce an incremental commitment to a non-deterministic advice ω
+  ///
+  /// * commits to advice with Pedersen
+  /// * hashes previous commitment & pedersen commitment to advice
+  /// * outputs hash bits as scalar
   pub fn commit(
     ck: &CommitmentKey<E1>,
     ro_consts: &ROConstants<Dual<E1>>,
@@ -39,6 +44,7 @@ where
     scalar_as_base::<Dual<E1>>(ro.squeeze(NUM_HASH_BITS))
   }
 
+  /// Produce an incremental commitment to already pedersen committed non-deterministic advice ω
   pub fn increment_comm_w(
     ro_consts: &ROConstants<Dual<E1>>,
     prev_comm: E1::Scalar,
