@@ -160,7 +160,6 @@ where
   l_u_primary: R1CSInstance<E1>,
 
   i: usize,
-  zi: Vec<E1::Scalar>,
 
   // incremental commitment of previous invokation of step circuit
   prev_IC: E1::Scalar,
@@ -171,6 +170,9 @@ where
   // cyclefold circuit data
   r_W_cyclefold: RelaxedR1CSWitness<Dual<E1>>,
   r_U_cyclefold: RelaxedR1CSInstance<Dual<E1>>,
+
+  // outputs
+  zi: Vec<E1::Scalar>,
 }
 
 impl<E1> RecursiveSNARK<E1>
