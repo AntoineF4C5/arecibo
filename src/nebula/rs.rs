@@ -547,6 +547,11 @@ where
       step_circuit.non_deterministic_advice(),
     )
   }
+
+  /// The number of steps which have been executed thus far.
+  pub fn num_steps(&self) -> usize {
+    self.i
+  }
 }
 
 /// A helper trait for a step of the incremental computation (i.e., circuit for F)
