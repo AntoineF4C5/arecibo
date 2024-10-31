@@ -123,6 +123,11 @@ where
       .expect("Failure in retrieving digest")
   }
 
+  /// Return reference to commitment key
+  pub fn ck(&self) -> &CommitmentKey<E1> {
+    &self.ck_primary
+  }
+
   /// Returns the number of constraints in the primary and cyclefold circuits
   pub const fn num_constraints(&self) -> (usize, usize) {
     (
