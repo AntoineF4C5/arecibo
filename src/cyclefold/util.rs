@@ -13,7 +13,7 @@ use ff::Field;
 use serde::{Deserialize, Serialize};
 
 /// Absorb a commitment over engine `E1` into an RO over engine `E2` by absorbing the limbs
-pub(super) fn absorb_primary_commitment<E1, E2>(
+pub(crate) fn absorb_primary_commitment<E1, E2>(
   comm: &impl CommitmentTrait<E1>,
   ro: &mut impl ROTrait<E2::Base, E2::Scalar>,
 ) where
