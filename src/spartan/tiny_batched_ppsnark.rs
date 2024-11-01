@@ -1,6 +1,7 @@
 //! batched pp snark
 //!
 //!
+#![allow(missing_docs)]
 
 use crate::{
   digest::{DigestComputer, SimpleDigestible},
@@ -13,7 +14,7 @@ use crate::{
       eq::EqPolynomial,
       identity::IdentityPolynomial,
       masked_eq::MaskedEqPolynomial,
-      multilinear::{MultilinearPolynomial, SparsePolynomial}, 
+      multilinear::{MultilinearPolynomial, SparsePolynomial},
       power::PowPolynomial,
       univariate::{CompressedUniPoly, UniPoly},
     },
@@ -38,15 +39,15 @@ use crate::{
 };
 use core::slice;
 use ff::Field;
+use ff::PrimeField;
 use itertools::{chain, Itertools as _};
 use once_cell::sync::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use std::fs;
-use tracing::error;
-use ff::PrimeField;
 use serde_json;
+use std::fs;
+use std::sync::Arc;
+use tracing::error;
 
 /// A type that represents the prover's key
 #[derive(Debug)]
@@ -57,7 +58,6 @@ pub struct ProverKey<E: Engine> {
   pub S_comm: Vec<R1CSShapeSparkCommitment<E>>,
   pub vk_digest: E::Scalar, // digest of verifier's key
 }
-
 
 /// A type that represents the verifier's key
 #[derive(Debug, Serialize, Deserialize)]
@@ -90,14 +90,14 @@ pub struct DataForUntrustedRemote<E: Engine> {
   polys_Az_Bz_Cz: Vec<[Vec<E::Scalar>; 3]>,
   ck: CommitmentKey<E>,
   //transcript_state: E::TE,
-  polys_tau: Vec<Vec<E::Scalar>>, 
+  polys_tau: Vec<Vec<E::Scalar>>,
   coords_tau: Vec<Vec<E::Scalar>>,
   polys_L_row_col: Vec<[Vec<E::Scalar>; 2]>,
-  polys_E: Vec<Vec<E::Scalar>>, 
-  polys_W: Vec<Vec<E::Scalar>>, 
-  S: Vec<R1CSShape<E>>, 
+  polys_E: Vec<Vec<E::Scalar>>,
+  polys_W: Vec<Vec<E::Scalar>>,
+  S: Vec<R1CSShape<E>>,
   tau: E::Scalar,
-  us: Vec<E::Scalar>, 
+  us: Vec<E::Scalar>,
   polys_Z: Vec<Vec<E::Scalar>>,
   N_max: usize,
   Nis: Vec<usize>,
@@ -128,7 +128,6 @@ pub struct BatchedRelaxedR1CSSNARK<E: Engine> {
 
   // claims about Az, Bz, and Cz polynomials
   //evals_Az_Bz_Cz_at_tau: Vec<[E::Scalar; 3]>,
-
   sumcheck_result_witness: SumcheckProof<E>,
 
   // claims from the end of sum-check
@@ -138,9 +137,7 @@ pub struct BatchedRelaxedR1CSSNARK<E: Engine> {
   //evals_mem_oracle: Vec<[E::Scalar; 4]>,
   // [val_A, val_B, val_C, row, col, ts_row, ts_col]
   //evals_mem_preprocessed: Vec<[E::Scalar; 7]>,
-
   evals_W: Vec<<E as Engine>::Scalar>,
-
   // a PCS evaluation argument
   //eval_arg: ipa_pc::InnerProductArgument<E>,
 }
@@ -158,12 +155,10 @@ pub struct ResultsBatchedTinySNARK<E: Engine> {
 
   // commitments to aid the memory checks
   // [t_plus_r_inv_row, w_plus_r_inv_row, t_plus_r_inv_col, w_plus_r_inv_col]
-
   comms_mem_oracles: Vec<[CompressedCommitment<E>; 4]>,
   // a PCS evaluation argument
   eval_arg: ipa_pc::InnerProductArgument<E>,
 }
-
 
 impl<E: Engine> SimpleDigestible for VerifierKey<E> {}
 
@@ -184,44 +179,44 @@ impl<E: Engine> DigestHelperTrait<E> for VerifierKey<E> {
 #[allow(unused)]
 fn serialize_field<T: serde::Serialize>(field_name: &str, field_value: &T) {
   match serde_json::to_string(field_value) {
-      Ok(json_string) => {
-          let file_name = format!("{}.json", field_name);
-          if let Err(e) = fs::write(&file_name, json_string) {
-              error!("Failed to write file {}: {}", file_name, e);
-          } else {
-              println!("Successfully wrote {}", file_name);
-          }
-      },
-      Err(e) => {
-          error!("Failed to serialize {}: {}", field_name, e);
+    Ok(json_string) => {
+      let file_name = format!("{}.json", field_name);
+      if let Err(e) = fs::write(&file_name, json_string) {
+        error!("Failed to write file {}: {}", file_name, e);
+      } else {
+        println!("Successfully wrote {}", file_name);
       }
+    }
+    Err(e) => {
+      error!("Failed to serialize {}: {}", field_name, e);
+    }
   }
 }
 
 #[allow(unused)]
-fn serialize_data_for_remote<E: Engine>(data: &DataForUntrustedRemote<E>) 
-where 
-    E::Scalar: Serialize,
-    Commitment<E>: Serialize,
-    PolyEvalInstance<E>: Serialize,
-    PolyEvalWitness<E>: Serialize,
+fn serialize_data_for_remote<E: Engine>(data: &DataForUntrustedRemote<E>)
+where
+  E::Scalar: Serialize,
+  Commitment<E>: Serialize,
+  PolyEvalInstance<E>: Serialize,
+  PolyEvalWitness<E>: Serialize,
 {
-    serialize_field("polys_Az_Bz_Cz", &data.polys_Az_Bz_Cz);
-    serialize_field("ck", &data.ck);
-    serialize_field("polys_tau", &data.polys_tau);
-    serialize_field("coords_tau", &data.coords_tau);
-    serialize_field("polys_L_row_col", &data.polys_L_row_col);
-    serialize_field("polys_E", &data.polys_E);
-    serialize_field("us", &data.us);
-    serialize_field("polys_Z", &data.polys_Z);
-    serialize_field("N_max", &data.N_max);
-    serialize_field("Nis", &data.Nis);
-    serialize_field("num_rounds_sc", &data.num_rounds_sc);
-    //serialize_field("blinded_witness_comms", &data.blinded_witness_comms);
-    //serialize_field("u_batch_witness", &data.u_batch_witness);
-    //serialize_field("w_batch_witness", &data.w_batch_witness);
+  serialize_field("polys_Az_Bz_Cz", &data.polys_Az_Bz_Cz);
+  serialize_field("ck", &data.ck);
+  serialize_field("polys_tau", &data.polys_tau);
+  serialize_field("coords_tau", &data.coords_tau);
+  serialize_field("polys_L_row_col", &data.polys_L_row_col);
+  serialize_field("polys_E", &data.polys_E);
+  serialize_field("us", &data.us);
+  serialize_field("polys_Z", &data.polys_Z);
+  serialize_field("N_max", &data.N_max);
+  serialize_field("Nis", &data.Nis);
+  serialize_field("num_rounds_sc", &data.num_rounds_sc);
+  //serialize_field("blinded_witness_comms", &data.blinded_witness_comms);
+  //serialize_field("u_batch_witness", &data.u_batch_witness);
+  //serialize_field("w_batch_witness", &data.w_batch_witness);
 
-    println!("Serialization of DataForUntrustedRemote complete.");
+  println!("Serialization of DataForUntrustedRemote complete.");
 }
 
 impl<E: Engine> BatchedRelaxedR1CSSNARKTrait<E> for BatchedRelaxedR1CSSNARK<E>
@@ -279,7 +274,6 @@ where
     U: &[RelaxedR1CSInstance<E>],
     W: &[RelaxedR1CSWitness<E>],
   ) -> Result<Self, NovaError> {
-    
     // Pad shapes so that num_vars = num_cons = Nᵢ and check the sizes are correct
     let S = S.par_iter().map(|s| s.pad()).collect::<Vec<_>>();
 
@@ -466,8 +460,8 @@ where
 
     w_transcript.absorb(b"vk", &pk.vk_digest);
     if num_instances > 1 {
-        let num_instances_field = E::Scalar::from(num_instances as u64);
-        w_transcript.absorb(b"n", &num_instances_field);
+      let num_instances_field = E::Scalar::from(num_instances as u64);
+      w_transcript.absorb(b"n", &num_instances_field);
     }
 
     let polys_W = W.into_iter().map(|w| w.W).collect::<Vec<_>>();
@@ -477,54 +471,51 @@ where
     let all_taus_witness = PowPolynomial::squares(&tau_witness, N_max.log_2());
 
     let (_polys_tau, _coords_tau): (Vec<_>, Vec<_>) = Nis
-    .par_iter()
-    .map(|&N_i| {
+      .par_iter()
+      .map(|&N_i| {
         let log_Ni = N_i.log_2();
         let eqp: EqPolynomial<_> = all_taus_witness[..log_Ni].iter().cloned().collect();
         let evals = eqp.evals();
         let coords = eqp.r;
         (evals, coords)
-    })
-    .unzip();
+      })
+      .unzip();
 
     let polys_W = polys_W
-        .into_par_iter()
-        .zip_eq(Nis.par_iter())
-        .map(|(mut poly_W, &Ni)| {
-            poly_W.resize(Ni, E::Scalar::ZERO);
-            poly_W
-        })
-        .collect::<Vec<_>>();
+      .into_par_iter()
+      .zip_eq(Nis.par_iter())
+      .map(|(mut poly_W, &Ni)| {
+        poly_W.resize(Ni, E::Scalar::ZERO);
+        poly_W
+      })
+      .collect::<Vec<_>>();
 
     let witness_sc_inst = zip_with!(par_iter, (polys_W, S), |poly_W, S| {
-        WitnessBoundSumcheck::new(tau_witness, poly_W.clone(), S.num_vars)
+      WitnessBoundSumcheck::new(tau_witness, poly_W.clone(), S.num_vars)
     })
     .collect::<Vec<_>>();
 
-    let (sumcheck_result_witness, rand_sc_w, claims_witness) = Self::prove_witness(
-      num_rounds_sc,
-      witness_sc_inst,
-      &mut w_transcript,
-    )?;
+    let (sumcheck_result_witness, rand_sc_w, claims_witness) =
+      Self::prove_witness(num_rounds_sc, witness_sc_inst, &mut w_transcript)?;
 
-     // Compute final evaluations
+    // Compute final evaluations
     let evals_W = claims_witness
-     .into_iter()
-     .map(|claims| claims[0][0])
-     .collect::<Vec<_>>();
+      .into_iter()
+      .map(|claims| claims[0][0])
+      .collect::<Vec<_>>();
 
-    let evals_vec = evals_W.iter().map(|&eval_W| vec![eval_W]).collect::<Vec<_>>();
+    let evals_vec = evals_W
+      .iter()
+      .map(|&eval_W| vec![eval_W])
+      .collect::<Vec<_>>();
 
-    let flattened_comms: Vec<Commitment<E>> = comms_W
-    .clone()
-    .into_iter()
-    .flatten()
-    .collect();
+    let flattened_comms: Vec<Commitment<E>> = comms_W.clone().into_iter().flatten().collect();
 
-    let w_vec = polys_W.clone()
-    .into_iter()
-    .map(|p| PolyEvalWitness::<E> { p })
-    .collect::<Vec<_>>();
+    let w_vec = polys_W
+      .clone()
+      .into_iter()
+      .map(|p| PolyEvalWitness::<E> { p })
+      .collect::<Vec<_>>();
 
     for evals in evals_vec.iter() {
       w_transcript.absorb(b"e", &evals.as_slice());
@@ -535,8 +526,15 @@ where
 
     // Compute number of variables for each polynomial
     let num_vars_u = w_vec.iter().map(|w| w.p.len().log_2()).collect::<Vec<_>>();
-    let _u_batch = PolyEvalInstance::<E>::batch_diff_size(&flattened_comms, &evals_vec, &num_vars_u, rand_sc_w.clone(), c);
-    let _w_batch = PolyEvalWitness::<E>::batch_diff_size(&w_vec.iter().by_ref().collect::<Vec<_>>(), c);
+    let _u_batch = PolyEvalInstance::<E>::batch_diff_size(
+      &flattened_comms,
+      &evals_vec,
+      &num_vars_u,
+      rand_sc_w.clone(),
+      c,
+    );
+    let _w_batch =
+      PolyEvalWitness::<E>::batch_diff_size(&w_vec.iter().by_ref().collect::<Vec<_>>(), c);
 
     /*let eval_arg = ipa_pc::EvaluationEngine::prove(
         ck,
@@ -548,7 +546,6 @@ where
         &u_batch.e,
     )?;*/
 
-    
     let comms_Az_Bz_Cz: Vec<_> = comms_Az_Bz_Cz
       .into_iter()
       .map(|comms| comms.map(|comm| comm.compress()))
@@ -603,11 +600,7 @@ where
   }
 
   #[allow(unused)]
-  fn verify(
-    &self,
-    vk: &Self::VerifierKey,
-    U: &[RelaxedR1CSInstance<E>],
-  ) -> Result<(), NovaError> {
+  fn verify(&self, vk: &Self::VerifierKey, U: &[RelaxedR1CSInstance<E>]) -> Result<(), NovaError> {
     let num_instances = U.len();
     let num_claims_per_instance = 1; // We only have witness claims now
 
@@ -619,8 +612,8 @@ where
 
     transcript.absorb(b"vk", &vk.digest());
     if num_instances > 1 {
-        let num_instances_field = E::Scalar::from(num_instances as u64);
-        transcript.absorb(b"n", &num_instances_field);
+      let num_instances_field = E::Scalar::from(num_instances as u64);
+      transcript.absorb(b"n", &num_instances_field);
     }
 
     let tau = transcript.squeeze(b"t")?;
@@ -629,55 +622,64 @@ where
     let s_powers = powers(&s, num_instances * num_claims_per_instance);
 
     let (claim_sc_final, rand_sc) = {
-        // Gather all claims into a single vector
-        let claims = U.iter()
+      // Gather all claims into a single vector
+      let claims = U.iter()
             .map(|_| E::Scalar::ZERO) // Placeholder for witness claim
             .collect::<Vec<_>>();
 
-        // Number of rounds for each claim
-        let num_rounds_by_claim = num_rounds.clone();
+      // Number of rounds for each claim
+      let num_rounds_by_claim = num_rounds.clone();
 
-        self.sumcheck_result_witness
-            .verify_batch(&claims, &num_rounds_by_claim, &s_powers, 3, &mut transcript)?
+      self.sumcheck_result_witness.verify_batch(
+        &claims,
+        &num_rounds_by_claim,
+        &s_powers,
+        3,
+        &mut transcript,
+      )?
     };
 
     let rand_sc_i = num_rounds
-    .iter()
-    .map(|num_rounds| rand_sc[(num_rounds_max - num_rounds)..].to_vec())
-    .collect::<Vec<_>>();
+      .iter()
+      .map(|num_rounds| rand_sc[(num_rounds_max - num_rounds)..].to_vec())
+      .collect::<Vec<_>>();
 
     let claim_sc_final_expected: E::Scalar = zip_with!(
       (
-          vk.num_vars.iter(),
-          rand_sc_i.iter(),
-          U.iter(),
-          self.evals_W.iter().cloned()
+        vk.num_vars.iter(),
+        rand_sc_i.iter(),
+        U.iter(),
+        self.evals_W.iter().cloned()
       ),
       |num_vars, rand_sc, U, eval_W| {
-          let num_rounds_i = rand_sc.len();
-          let num_vars_log = num_vars.log_2();
+        let num_rounds_i = rand_sc.len();
+        let num_vars_log = num_vars.log_2();
 
-          let tau_coords = PowPolynomial::new(&tau, num_rounds_i).coordinates();
-          let eq_tau: EqPolynomial<_> = EqPolynomial::new(tau_coords);
-          let eq_masked_tau = MaskedEqPolynomial::new(&eq_tau, num_vars_log).evaluate(rand_sc);
+        let tau_coords = PowPolynomial::new(&tau, num_rounds_i).coordinates();
+        let eq_tau: EqPolynomial<_> = EqPolynomial::new(tau_coords);
+        let eq_masked_tau = MaskedEqPolynomial::new(&eq_tau, num_vars_log).evaluate(rand_sc);
 
-          // Calculate Z (this should match the prover's calculation)
-          let Z = eval_W;
+        // Calculate Z (this should match the prover's calculation)
+        let Z = eval_W;
 
-          [Z, eq_masked_tau]
+        [Z, eq_masked_tau]
       }
     )
     .zip_eq(s_powers)
     .fold(E::Scalar::ZERO, |acc, (claims, s_power)| {
-        let product = claims[0] * claims[1] * s_power;
-        acc + product
+      let product = claims[0] * claims[1] * s_power;
+      acc + product
     });
 
     if claim_sc_final_expected != claim_sc_final {
-        return Err(NovaError::InvalidSumcheckProof);
+      return Err(NovaError::InvalidSumcheckProof);
     }
 
-    let evals_vec = self.evals_W.iter().map(|&eval_W| vec![eval_W]).collect::<Vec<_>>();
+    let evals_vec = self
+      .evals_W
+      .iter()
+      .map(|&eval_W| vec![eval_W])
+      .collect::<Vec<_>>();
 
     for evals in evals_vec.iter() {
       transcript.absorb(b"e", &evals.as_slice());
@@ -697,15 +699,13 @@ where
 
     Ok(())
   }
-  
 }
 
 impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
-  where
+where
   E::GE: DlogGroup<ScalarExt = E::Scalar>,
   CommitmentKey<E>: CommitmentKeyExtTrait<E>,
 {
-
   #[allow(unused)]
   pub fn verify_untrusted(
     &self,
@@ -730,7 +730,8 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
     transcript.absorb(b"U", &U);
 
     // Decompress commitments
-    let comms_Az_Bz_Cz = self.data
+    let comms_Az_Bz_Cz = self
+      .data
       .comms_Az_Bz_Cz
       .iter()
       .map(|comms| {
@@ -741,7 +742,8 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
       })
       .collect::<Result<Vec<_>, _>>()?;
 
-    let comms_L_row_col = self.data
+    let comms_L_row_col = self
+      .data
       .comms_L_row_col
       .iter()
       .map(|comms| {
@@ -832,9 +834,13 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
         .flat_map(|num_rounds_i| vec![*num_rounds_i; num_claims_per_instance].into_iter())
         .collect::<Vec<_>>();
 
-      results
-        .sc
-        .verify_batch(&claims, &num_rounds_by_claim, &s_powers, 3, &mut u_transcript)?
+      results.sc.verify_batch(
+        &claims,
+        &num_rounds_by_claim,
+        &s_powers,
+        3,
+        &mut u_transcript,
+      )?
     };
 
     // Truncated sumcheck randomness for each instance
@@ -1031,8 +1037,15 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
     };
 
     // verify
-    ipa_pc::EvaluationEngine::verify(&vk.vk_ee, &mut u_transcript, &u.c, &u.x, &u.e, &results.eval_arg)?;
-    
+    ipa_pc::EvaluationEngine::verify(
+      &vk.vk_ee,
+      &mut u_transcript,
+      &u.c,
+      &u.x,
+      &u.e,
+      &results.eval_arg,
+    )?;
+
     Ok(())
   }
 
@@ -1041,66 +1054,67 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
     pk: &ProverKey<E>,
   ) -> Result<ResultsBatchedTinySNARK<E>, NovaError>
   where
-      E::Scalar: PrimeField,
+    E::Scalar: PrimeField,
   {
     let mut u_transcript = E::TE::new(b"UntrustedProver");
 
     let comms_Az_Bz_Cz = data
-    .comms_Az_Bz_Cz
-    .iter()
-    .map(|comms| {
-      comms
-        .iter()
-        .map(Commitment::<E>::decompress)
-        .collect::<Result<Vec<_>, _>>()
-    })
-    .collect::<Result<Vec<_>, _>>()?;
+      .comms_Az_Bz_Cz
+      .iter()
+      .map(|comms| {
+        comms
+          .iter()
+          .map(Commitment::<E>::decompress)
+          .collect::<Result<Vec<_>, _>>()
+      })
+      .collect::<Result<Vec<_>, _>>()?;
 
     let comms_L_row_col = data
-    .comms_L_row_col
-    .iter()
-    .map(|comms| {
-      comms
-        .iter()
-        .map(Commitment::<E>::decompress)
-        .collect::<Result<Vec<_>, _>>()
-    })
-    .collect::<Result<Vec<_>, _>>()?;
+      .comms_L_row_col
+      .iter()
+      .map(|comms| {
+        comms
+          .iter()
+          .map(Commitment::<E>::decompress)
+          .collect::<Result<Vec<_>, _>>()
+      })
+      .collect::<Result<Vec<_>, _>>()?;
 
     let comms_W_E = data
-    .comms_W_E
-    .iter()
-    .map(|comms| {
-      comms
-        .iter()
-        .map(Commitment::<E>::decompress)
-        .collect::<Result<Vec<_>, _>>()
-    })
-    .collect::<Result<Vec<_>, _>>()?;
+      .comms_W_E
+      .iter()
+      .map(|comms| {
+        comms
+          .iter()
+          .map(Commitment::<E>::decompress)
+          .collect::<Result<Vec<_>, _>>()
+      })
+      .collect::<Result<Vec<_>, _>>()?;
 
     let c = u_transcript.squeeze(b"c")?;
 
-    let polys_Mz: Vec<_> = data.polys_Az_Bz_Cz
-    .par_iter()
-    .map(|polys_Az_Bz_Cz| {
-      let poly_vec: Vec<&Vec<_>> = polys_Az_Bz_Cz.iter().collect();
-      let w = PolyEvalWitness::<E>::batch(&poly_vec[..], &c);
-      w.p
-    })
-    .collect();
+    let polys_Mz: Vec<_> = data
+      .polys_Az_Bz_Cz
+      .par_iter()
+      .map(|polys_Az_Bz_Cz| {
+        let poly_vec: Vec<&Vec<_>> = polys_Az_Bz_Cz.iter().collect();
+        let w = PolyEvalWitness::<E>::batch(&poly_vec[..], &c);
+        w.p
+      })
+      .collect();
 
     let evals_Mz: Vec<_> = zip_with!(
-    iter,
-    (comms_Az_Bz_Cz, data.evals_Az_Bz_Cz_at_tau),
-    |comm_Az_Bz_Cz, evals_Az_Bz_Cz_at_tau| {
-      let u = PolyEvalInstance::<E>::batch(
-        comm_Az_Bz_Cz.as_slice(),
-        vec![], // ignored by the function
-        evals_Az_Bz_Cz_at_tau.as_slice(),
-        &c,
-      );
-      u.e
-    }
+      iter,
+      (comms_Az_Bz_Cz, data.evals_Az_Bz_Cz_at_tau),
+      |comm_Az_Bz_Cz, evals_Az_Bz_Cz_at_tau| {
+        let u = PolyEvalInstance::<E>::batch(
+          comm_Az_Bz_Cz.as_slice(),
+          vec![], // ignored by the function
+          evals_Az_Bz_Cz_at_tau.as_slice(),
+          &c,
+        );
+        u.e
+      }
     )
     .collect();
 
@@ -1300,7 +1314,6 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
           })
           .collect::<Vec<E::Scalar>>();
           ([e[0], e[1]], [e[2], e[3], e[4], e[5], e[6]])
-
         }
       )
       .unzip();
@@ -1390,7 +1403,6 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
         pk.S_repr.iter()
       ),
       |Az_Bz_Cz, W, E, L_row_col, mem_oracles, S_repr| {
-
         chain![
           Az_Bz_Cz,
           [W, E],
@@ -1421,8 +1433,13 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
 
     // Compute number of variables for each polynomial
     let num_vars_u = w_vec.iter().map(|w| w.p.len().log_2()).collect::<Vec<_>>();
-    let u_batch =
-      PolyEvalInstance::<E>::batch_diff_size(&comms_vec, &evals_vec, &num_vars_u, rand_sc.clone(), c);
+    let u_batch = PolyEvalInstance::<E>::batch_diff_size(
+      &comms_vec,
+      &evals_vec,
+      &num_vars_u,
+      rand_sc.clone(),
+      c,
+    );
     let w_batch =
       PolyEvalWitness::<E>::batch_diff_size(&w_vec.iter().by_ref().collect::<Vec<_>>(), c);
 
@@ -1439,12 +1456,11 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
     )?;
 
     let comms_mem_oracles: Vec<_> = comms_mem_oracles
-    .into_iter()
-    .map(|comms| comms.map(|comm| comm.compress()))
-    .collect();
-   
+      .into_iter()
+      .map(|comms| comms.map(|comm| comm.compress()))
+      .collect();
 
-    Ok(ResultsBatchedTinySNARK{
+    Ok(ResultsBatchedTinySNARK {
       data: data.clone(),
       sc,
       evals_Az_Bz_Cz_W_E,
@@ -1452,7 +1468,7 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
       evals_mem_oracle,
       evals_mem_preprocessed,
       comms_mem_oracles,
-      eval_arg
+      eval_arg,
     })
   }
 
@@ -1462,26 +1478,18 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
     num_rounds: usize,
     mut witness: Vec<T1>,
     transcript: &mut E::TE,
-  ) -> Result<
-    (
-      SumcheckProof<E>,
-      Vec<E::Scalar>,
-      Vec<Vec<Vec<E::Scalar>>>,
-    ),
-    NovaError,
-  >
+  ) -> Result<(SumcheckProof<E>, Vec<E::Scalar>, Vec<Vec<Vec<E::Scalar>>>), NovaError>
   where
     T1: SumcheckEngine<E>,
   {
-
     for inst in witness.iter() {
       assert!(inst.size().is_power_of_two());
     }
 
     let claims = witness
-    .iter()
-    .flat_map(|witness| Self::scaled_claims(witness, num_rounds))
-    .collect::<Vec<E::Scalar>>();
+      .iter()
+      .flat_map(|witness| Self::scaled_claims(witness, num_rounds))
+      .collect::<Vec<E::Scalar>>();
 
     // Sample a challenge for the random linear combination of all scaled claims
     let s = transcript.squeeze(b"r")?;
@@ -1500,7 +1508,7 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
     for i in 0..num_rounds {
       // At the start of round i, the input polynomials are defined over at most n-i variables.
       let remaining_variables = num_rounds - i;
-    
+
       // For each claim j, compute the evaluations of its univariate polynomial S_j(X_i)
       // at X = 0, 2, 3. The polynomial is such that S_{j-1}(r_{j-1}) = S_j(0) + S_j(1).
       // If the number of variable m of the claim is m < n-i, then the polynomial is
@@ -1509,14 +1517,14 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
         .par_iter()
         .flat_map(|witness| Self::get_evals(witness, remaining_variables))
         .collect::<Vec<_>>();
-    
+
       assert_eq!(evals.len(), claims.len());
-    
+
       // Random linear combination of the univariate evaluations at X_i = 0, 2, 3
       let evals_combined_0 = (0..evals.len()).map(|i| evals[i][0] * coeffs[i]).sum();
       let evals_combined_2 = (0..evals.len()).map(|i| evals[i][1] * coeffs[i]).sum();
       let evals_combined_3 = (0..evals.len()).map(|i| evals[i][2] * coeffs[i]).sum();
-    
+
       let evals = vec![
         evals_combined_0,
         running_claim - evals_combined_0,
@@ -1525,21 +1533,21 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
       ];
       // Coefficient representation of S(X_i)
       let poly = UniPoly::from_evals(&evals);
-    
+
       // append the prover's message to the transcript
       transcript.absorb(b"p", &poly);
-    
+
       // derive the verifier's challenge for the next round
       let r_i = transcript.squeeze(b"c")?;
       r.push(r_i);
-    
+
       // Bind the variable X_i of polynomials across all claims to r_i.
       // If the claim is defined over m variables and m < n-i, then
       // binding has no effect on the polynomial.
       witness
         .par_iter_mut()
         .for_each(|witness| Self::bind(witness, remaining_variables, &r_i));
-    
+
       running_claim = poly.evaluate(&r_i);
       cubic_polys.push(poly.compress());
     }
@@ -1551,11 +1559,7 @@ impl<E: Engine> BatchedRelaxedR1CSSNARK<E>
       .map(|inst| inst.final_claims())
       .collect();
 
-    Ok((
-      SumcheckProof::new(cubic_polys),
-      r,
-      claims_witness,
-    ))
+    Ok((SumcheckProof::new(cubic_polys), r, claims_witness))
   }
 
   /// Runs the batched Sumcheck protocol for the claims of multiple instance of possibly different sizes.
