@@ -51,9 +51,11 @@ where
   E1: CurveCycleEquipped,
 {
   F_arity_primary: usize,
-  ro_consts_primary: ROConstants<Dual<E1>>,
+  /// RO constants for primary circuit
+  pub ro_consts_primary: ROConstants<Dual<E1>>,
   ro_consts_circuit_primary: ROConstantsCircuit<Dual<E1>>,
-  ck_primary: CommitmentKey<E1>,
+  /// Commitment key for primary circuit
+  pub ck_primary: CommitmentKey<E1>,
   circuit_shape_primary: R1CSWithArity<E1>,
   augmented_circuit_params: AugmentedCircuitParams,
   ro_consts_cyclefold: ROConstants<Dual<E1>>,
