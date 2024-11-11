@@ -1,3 +1,5 @@
+//! Incremental Commitment Scheme
+
 use std::marker::PhantomData;
 
 use crate::constants::NUM_FE_IN_EMULATED_POINT;
@@ -14,6 +16,7 @@ use crate::{
   CommitmentKey,
 };
 
+/// Struct to implement Incremental Commitment Scheme
 pub struct IC<E1>
 where
   E1: CurveCycleEquipped,
