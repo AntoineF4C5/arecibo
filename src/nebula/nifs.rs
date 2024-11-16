@@ -115,6 +115,9 @@ impl<E: Engine> CycleFoldNIFS<E> {
     W1: &RelaxedR1CSWitness<E>,
     U2: &R1CSInstance<E>,
     W2: &R1CSWitness<E>,
+    T: &mut Vec<E::Scalar>,
+    ABC_Z_1: &mut R1CSResult<E>,
+    ABC_Z_2: &mut R1CSResult<E>,
   ) -> Result<(Self, (RelaxedR1CSInstance<E>, RelaxedR1CSWitness<E>)), NovaError> {
     // Check `U1` and `U2` have the same arity
     if U2.X.len() != NIO_CYCLE_FOLD || U1.X.len() != NIO_CYCLE_FOLD {
@@ -138,7 +141,7 @@ impl<E: Engine> CycleFoldNIFS<E> {
     absorb_cyclefold_r1cs(U2, &mut ro);
 
     // compute a commitment to the cross-term
-    let (T, comm_T) = S.commit_T(ck, U1, W1, U2, W2)?;
+    let comm_T = S.commit_T_into(ck, U1, W1, U2, W2, T, ABC_Z_1, ABC_Z_2)?;
 
     // append `comm_T` to the transcript and obtain a challenge
     comm_T.absorb_in_ro(&mut ro);

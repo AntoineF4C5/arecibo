@@ -368,6 +368,9 @@ where
       &self.r_W_cyclefold,
       &l_u_cyclefold_E,
       &l_w_cyclefold_E,
+      &mut self.buffer_cyclefold.T,
+      &mut self.buffer_cyclefold.ABC_Z_1,
+      &mut self.buffer_cyclefold.ABC_Z_2,
     )?;
 
     let comm_T_E = Commitment::<Dual<E1>>::decompress(&nifs_cyclefold_E.comm_T)?;
@@ -399,6 +402,9 @@ where
       &r_W_cyclefold_E,
       &l_u_cyclefold_W,
       &l_w_cyclefold_W,
+      &mut self.buffer_cyclefold.T,
+      &mut self.buffer_cyclefold.ABC_Z_1,
+      &mut self.buffer_cyclefold.ABC_Z_2,
     )?;
 
     let comm_T_W = Commitment::<Dual<E1>>::decompress(&nifs_cyclefold_W.comm_T)?;
