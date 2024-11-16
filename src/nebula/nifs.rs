@@ -47,9 +47,6 @@ where
     W1: &RelaxedR1CSWitness<E1>,
     U2: &R1CSInstance<E1>,
     W2: &R1CSWitness<E1>,
-    T: &mut Vec<E1::Scalar>,
-    ABC_Z_1: &mut R1CSResult<E1>,
-    ABC_Z_2: &mut R1CSResult<E1>,
     comm_CZ_1: &mut Commitment<E1>,
   ) -> Result<
     (
@@ -74,8 +71,7 @@ where
 
     absorb_primary_r1cs::<E1, E2>(U2, &mut ro);
 
-    let (comm_T, comm_CZ_2) =
-      S.commit_T_into_nebula(ck, U1, W1, U2, W2, T, ABC_Z_1, ABC_Z_2, comm_CZ_1)?;
+    let (T, comm_T, comm_CZ_2) = S.commit_T_nebula(ck, U1, W1, U2, W2, comm_CZ_1)?;
 
     absorb_primary_commitment::<E1, E2>(&comm_T, &mut ro);
 
@@ -86,7 +82,7 @@ where
 
     let U = U1.fold(U2, &comm_T, &r);
 
-    let W = W1.fold(W2, T, &r)?;
+    let W = W1.fold(W2, &T, &r)?;
 
     Ok((
       Self {

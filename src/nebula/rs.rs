@@ -325,9 +325,6 @@ where
       &self.r_W_primary,
       &self.l_u_primary,
       &self.l_w_primary,
-      &mut self.buffer_primary.T,
-      &mut self.buffer_primary.ABC_Z_1,
-      &mut self.buffer_primary.ABC_Z_2,
       &mut self.buffer_primary.CZ_1,
     )?;
     let comm_T = Commitment::<E1>::decompress(&nifs_primary.comm_T)?;
