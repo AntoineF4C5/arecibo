@@ -309,6 +309,7 @@ mod test {
     spartan::{batched, batched_ppsnark, snark::RelaxedR1CSSNARK, tiny_batched_ppsnark},
     supernova::{circuit::TrivialSecondaryCircuit, NonUniformCircuit, StepCircuit},
   };
+  use halo2curves::pasta::Fq;
 
   use abomonation::Abomonation;
   use bellpepper_core::{num::AllocatedNum, ConstraintSystem, SynthesisError};

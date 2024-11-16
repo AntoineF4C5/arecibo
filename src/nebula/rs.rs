@@ -1,9 +1,9 @@
 //! This module implements a SNARK that proves the correct execution of an incremental computation
-use crate::cyclefold::nifs::{CycleFoldNIFS, PrimaryNIFS};
+use super::nifs::{CycleFoldNIFS, PrimaryNIFS};
 use crate::cyclefold::util::{absorb_primary_relaxed_r1cs, FoldingData};
+use crate::r1cs::{self, R1CSResult};
 use crate::traits::commitment::CommitmentEngineTrait;
 
-use crate::Commitment;
 use crate::{
   bellpepper::{
     r1cs::{NovaShape, NovaWitness},
@@ -24,6 +24,7 @@ use crate::{
   },
   CommitmentKey, DigestComputer, R1CSWithArity, ROConstants, SimpleDigestible,
 };
+use crate::{Commitment, ResourceBuffer};
 use bellpepper_core::num::AllocatedNum;
 use ff::Field;
 use serde::{Deserialize, Serialize};
@@ -180,6 +181,10 @@ where
 
   // outputs
   zi: Vec<E1::Scalar>,
+
+  // memory buffers for folding steps
+  buffer_primary: ResourceBuffer<E1>,
+  buffer_cyclefold: ResourceBuffer<Dual<E1>>,
 }
 
 impl<E1> RecursiveSNARK<E1>
@@ -240,6 +245,22 @@ where
     let r_U_cyclefold = RelaxedR1CSInstance::default(&pp.ck_cyclefold, r1cs_cyclefold);
     let r_W_cyclefold = RelaxedR1CSWitness::default(r1cs_cyclefold);
 
+    let buffer_primary = ResourceBuffer {
+      l_w: None,
+      l_u: None,
+      ABC_Z_1: R1CSResult::default(r1cs_primary.num_cons),
+      ABC_Z_2: R1CSResult::default(r1cs_primary.num_cons),
+      T: r1cs::default_T::<E1>(r1cs_primary.num_cons),
+    };
+
+    let buffer_cyclefold = ResourceBuffer {
+      l_w: None,
+      l_u: None,
+      ABC_Z_1: R1CSResult::default(r1cs_cyclefold.num_cons),
+      ABC_Z_2: R1CSResult::default(r1cs_cyclefold.num_cons),
+      T: r1cs::default_T::<Dual<E1>>(r1cs_cyclefold.num_cons),
+    };
+
     Ok(Self {
       z0: z0.to_vec(),
       // IVC proof
@@ -260,6 +281,8 @@ where
       // running Cyclefold instance, witness pair
       r_U_cyclefold,
       r_W_cyclefold,
+      buffer_primary,
+      buffer_cyclefold,
     })
   }
 
@@ -290,6 +313,9 @@ where
       &self.r_W_primary,
       &self.l_u_primary,
       &self.l_w_primary,
+      &mut self.buffer_primary.T,
+      &mut self.buffer_primary.ABC_Z_1,
+      &mut self.buffer_primary.ABC_Z_2,
     )?;
     let comm_T = Commitment::<E1>::decompress(&nifs_primary.comm_T)?;
 
