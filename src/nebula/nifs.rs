@@ -10,7 +10,7 @@ use crate::{
     R1CSInstance, R1CSResult, R1CSShape, R1CSWitness, RelaxedR1CSInstance, RelaxedR1CSWitness,
   },
   traits::{commitment::CommitmentTrait, AbsorbInROTrait, Engine, ROConstants, ROTrait},
-  CommitmentKey, CompressedCommitment,
+  Commitment, CommitmentKey, CompressedCommitment,
 };
 
 use crate::cyclefold::util::{
@@ -50,6 +50,7 @@ where
     T: &mut Vec<E1::Scalar>,
     ABC_Z_1: &mut R1CSResult<E1>,
     ABC_Z_2: &mut R1CSResult<E1>,
+    comm_CZ_1: &mut Commitment<E1>,
   ) -> Result<
     (
       Self,
@@ -73,11 +74,15 @@ where
 
     absorb_primary_r1cs::<E1, E2>(U2, &mut ro);
 
-    let comm_T = S.commit_T_into(ck, U1, W1, U2, W2, T, ABC_Z_1, ABC_Z_2)?;
+    let (comm_T, comm_CZ_2) =
+      S.commit_T_into_nebula(ck, U1, W1, U2, W2, T, ABC_Z_1, ABC_Z_2, comm_CZ_1)?;
 
     absorb_primary_commitment::<E1, E2>(&comm_T, &mut ro);
 
     let r = scalar_as_base::<E2>(ro.squeeze(NUM_CHALLENGE_BITS));
+
+    // update comm_CZ_1
+    *comm_CZ_1 = *comm_CZ_1 + (comm_CZ_2 * r);
 
     let U = U1.fold(U2, &comm_T, &r);
 
@@ -153,7 +158,7 @@ impl<E: Engine> CycleFoldNIFS<E> {
     let U = U1.fold(U2, &comm_T, &r);
 
     // fold the witness using `r` and `T`
-    let W = W1.fold(W2, &T, &r)?;
+    let W = W1.fold(W2, T, &r)?;
 
     // return the folded instance and witness
     Ok((

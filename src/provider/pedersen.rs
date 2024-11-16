@@ -21,6 +21,7 @@ use group::{
 };
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::ops::Sub;
 
 /// A type that holds commitment generators
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Abomonation)]
@@ -92,7 +93,7 @@ where
     };
     Ok(Self { comm })
   }
-  
+
   fn reinterpret_as_generator(&self) -> <<E as Engine>::GE as PrimeCurve>::Affine {
     self.comm.to_affine()
   }
@@ -203,6 +204,20 @@ where
   fn add(self, other: Self) -> Self {
     Self {
       comm: self.comm + other.comm,
+    }
+  }
+}
+
+impl<E> Sub for Commitment<E>
+where
+  E: Engine,
+  E::GE: DlogGroup<ScalarExt = E::Scalar>,
+{
+  type Output = Self;
+
+  fn sub(self, other: Self) -> Self {
+    Self {
+      comm: self.comm - other.comm,
     }
   }
 }

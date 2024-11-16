@@ -661,6 +661,75 @@ impl<E: Engine> R1CSShape<E> {
     Ok(CE::<E>::commit(ck, T))
   }
 
+  /// A method to compute a commitment to the cross-term `T` given a
+  /// Relaxed R1CS instance-witness pair and an R1CS instance-witness pair
+  ///
+  /// This is [`R1CSShape::commit_T`] but into a buffer.
+  pub fn commit_T_into_nebula(
+    &self,
+    ck: &CommitmentKey<E>,
+    U1: &RelaxedR1CSInstance<E>,
+    W1: &RelaxedR1CSWitness<E>,
+    U2: &R1CSInstance<E>,
+    W2: &R1CSWitness<E>,
+    T: &mut Vec<E::Scalar>,
+    ABC_Z_1: &mut R1CSResult<E>,
+    ABC_Z_2: &mut R1CSResult<E>,
+    comm_CZ_1: &Commitment<E>,
+  ) -> Result<(Commitment<E>, Commitment<E>), NovaError> {
+    tracing::info_span!("AZ_1, BZ_1, CZ_1")
+      .in_scope(|| self.multiply_witness_into(&W1.W, &U1.u, &U1.X, ABC_Z_1))?;
+
+    let R1CSResult {
+      AZ: AZ_1,
+      BZ: BZ_1,
+      CZ: CZ_1,
+    } = ABC_Z_1;
+
+    tracing::info_span!("AZ_2, BZ_2, CZ_2")
+      .in_scope(|| self.multiply_witness_into(&W2.W, &E::Scalar::ONE, &U2.X, ABC_Z_2))?;
+
+    let R1CSResult {
+      AZ: AZ_2,
+      BZ: BZ_2,
+      CZ: CZ_2,
+    } = ABC_Z_2;
+
+    let comm_CZ_2 = CE::<E>::commit(ck, CZ_2);
+
+    let (AZ_1_circ_BZ_2, AZ_2_circ_BZ_1) = rayon::join(
+      || {
+        let AZ_1_circ_BZ_2: Vec<<E as Engine>::Scalar> =
+          (0..AZ_1.len()).map(|i| AZ_1[i] * BZ_2[i]).collect();
+        AZ_1_circ_BZ_2
+      },
+      || {
+        let AZ_2_circ_BZ_1: Vec<<E as Engine>::Scalar> = (0..AZ_1.len())
+          .into_par_iter()
+          .map(|i| AZ_2[i] * BZ_1[i])
+          .collect();
+        AZ_2_circ_BZ_1
+      },
+    );
+
+    // this doesn't allocate memory but has bad temporal cache locality -- should test to see which is faster
+    T.clear();
+    tracing::info_span!("T").in_scope(|| {
+      (0..AZ_1_circ_BZ_2.len())
+        .into_par_iter()
+        .map(|i| {
+          let u_1_cdot_Cz_2_plus_Cz_1 = U1.u * CZ_2[i] + CZ_1[i];
+          AZ_1_circ_BZ_2[i] + AZ_2_circ_BZ_1[i] - u_1_cdot_Cz_2_plus_Cz_1
+        })
+        .collect_into_vec(T)
+    });
+
+    let comm_AZ_1_circ_BZ_2 = CE::<E>::commit(ck, &AZ_1_circ_BZ_2);
+    let comm_AZ_2_circ_BZ_1 = CE::<E>::commit(ck, &AZ_2_circ_BZ_1);
+    let comm_T = comm_AZ_1_circ_BZ_2 + comm_AZ_2_circ_BZ_1 - ((comm_CZ_2 * U1.u) + *comm_CZ_1);
+    Ok((comm_T, comm_CZ_2))
+  }
+
   /// A method to compute a binding and hiding commitment to the cross-term `T` given a
   /// Relaxed R1CS instance-witness pair and an R1CS instance-witness pair
   ///

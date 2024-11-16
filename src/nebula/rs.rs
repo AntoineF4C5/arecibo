@@ -4,6 +4,7 @@ use crate::cyclefold::util::{absorb_primary_relaxed_r1cs, FoldingData};
 use crate::r1cs::{self, R1CSResult};
 use crate::traits::commitment::CommitmentEngineTrait;
 
+use crate::Commitment;
 use crate::{
   bellpepper::{
     r1cs::{NovaShape, NovaWitness},
@@ -24,7 +25,6 @@ use crate::{
   },
   CommitmentKey, DigestComputer, R1CSWithArity, ROConstants, SimpleDigestible,
 };
-use crate::{Commitment, ResourceBuffer};
 use bellpepper_core::num::AllocatedNum;
 use ff::Field;
 use serde::{Deserialize, Serialize};
@@ -37,6 +37,20 @@ use once_cell::sync::OnceCell;
 
 use super::augmented_circuit::{AugmentedCircuit, AugmentedCircuitInputs, AugmentedCircuitParams};
 use super::ic::IC;
+
+/// A resource buffer for [`RecursiveSNARK`] for storing scratch values that are computed by `prove_step`,
+/// which allows the reuse of memory allocations and avoids unnecessary new allocations in the critical section.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(bound = "")]
+pub struct ResourceBuffer<E: Engine> {
+  /// cache for comm_CZ_1
+  CZ_1: Commitment<E>,
+  ABC_Z_1: R1CSResult<E>,
+  ABC_Z_2: R1CSResult<E>,
+
+  /// buffer for `commit_T`
+  T: Vec<E::Scalar>,
+}
 
 /// The public parameters used in the CycleFold recursive SNARK proof and verification
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Abomonation)]
@@ -246,16 +260,14 @@ where
     let r_W_cyclefold = RelaxedR1CSWitness::default(r1cs_cyclefold);
 
     let buffer_primary = ResourceBuffer {
-      l_w: None,
-      l_u: None,
+      CZ_1: Commitment::<E1>::default(),
       ABC_Z_1: R1CSResult::default(r1cs_primary.num_cons),
       ABC_Z_2: R1CSResult::default(r1cs_primary.num_cons),
       T: r1cs::default_T::<E1>(r1cs_primary.num_cons),
     };
 
     let buffer_cyclefold = ResourceBuffer {
-      l_w: None,
-      l_u: None,
+      CZ_1: Commitment::<Dual<E1>>::default(),
       ABC_Z_1: R1CSResult::default(r1cs_cyclefold.num_cons),
       ABC_Z_2: R1CSResult::default(r1cs_cyclefold.num_cons),
       T: r1cs::default_T::<Dual<E1>>(r1cs_cyclefold.num_cons),
@@ -316,6 +328,7 @@ where
       &mut self.buffer_primary.T,
       &mut self.buffer_primary.ABC_Z_1,
       &mut self.buffer_primary.ABC_Z_2,
+      &mut self.buffer_primary.CZ_1,
     )?;
     let comm_T = Commitment::<E1>::decompress(&nifs_primary.comm_T)?;
 
