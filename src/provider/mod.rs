@@ -171,6 +171,10 @@ impl CurveCycleEquipped for Secp256k1Engine {
   type Secondary = Secq256k1Engine;
 }
 
+impl CurveCycleEquipped for Secq256k1Engine {
+  type Secondary = Secp256k1Engine;
+}
+
 /// An implementation of the Nova `Engine` trait with Pallas curve and Pedersen commitment scheme
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PallasEngine;
